@@ -30,7 +30,7 @@ graph TB
 
     LB[Load Balancer<br/>TLS Termination]
 
-    subgraph Enclave Cluster — 3-of-5 Threshold
+    subgraph EnclaveCluster["Enclave Cluster — 3-of-5 Threshold"]
         E1[Enclave Node 1<br/>AMD SEV-SNP<br/>Azure]
         E2[Enclave Node 2<br/>AMD SEV-SNP<br/>Azure]
         E3[Enclave Node 3<br/>AMD SEV-SNP<br/>GCP]
