@@ -687,3 +687,4 @@ A 2-of-5 threshold would improve availability (tolerates 3 failures) but weakens
 | Deployment guide, monitoring, incident response | [Operations and Deployment](05-operations-and-deployment.md) |
 | RFC 3161 token format, hybrid signatures, compatibility | [RFC 3161 Compliance](06-rfc3161-compliance.md) |
 | Threat model, STRIDE analysis, residual risks | [Threat Model](07-threat-model.md) |
+| Throughput analysis, scaling strategy, cost estimates | [Throughput & Scaling](08-throughput-and-scaling.md) |
