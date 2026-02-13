@@ -1,21 +1,21 @@
 # Confidential Computing Timestamp Authority (CC-TSA)
 
-A **quantum-safe, hardware-attested Timestamp Authority** that replaces organizational trust with cryptographic proof. Every timestamp token is signed inside AMD SEV-SNP confidential VMs using threshold cryptography — the signing key never exists in any single location, the clock is hardware-protected, and the output is a standard RFC 3161 token with hybrid classical + post-quantum signatures.
+A **quantum-safe, hardware-attested Timestamp Authority** built on distributed cryptographic proof. Every timestamp token is signed inside AMD SEV-SNP confidential VMs using threshold cryptography — the signing key never exists in any single location, the clock is hardware-protected, and the output is a standard RFC 3161 token with hybrid classical + post-quantum signatures.
 
 ## Why Replace Traditional TSAs?
 
-Traditional Timestamp Authorities (RFC 3161) protect their signing keys and clocks through **organizational controls**: auditors, certified HSMs, access policies, and physical security. You trust the *organization* not to misuse or lose the key.
+Traditional Timestamp Authorities (RFC 3161) protect their signing keys and clocks using **certified HSMs** — for example, DigiStamp runs its entire timestamping function inside a FIPS 140-2 Level 4 IBM 4767 coprocessor, where the private key is generated in no-export mode, the clock is hardware-protected with drift adjustments limited to 120 seconds per 24-hour period, and any physical tampering destroys the key material. These are genuine hardware protections, not merely organizational policies.
 
-CC-TSA replaces that trust model with **cryptographic attestation** and **hardware-enforced isolation**:
+CC-TSA takes a different architectural approach — replacing a single trusted HSM with **distributed cryptographic attestation** and **threshold signing across multiple independent enclaves**:
 
-| Property | Traditional TSA | CC-TSA |
+| Property | Traditional HSM-based TSA | CC-TSA |
 |---|---|---|
-| **Trust model** | Organizational (audits, policies, certifications) | Cryptographic (hardware attestation, threshold crypto) |
-| **Key protection** | HSM with admin access | 3-of-5 threshold shares, each in a separate enclave — key never reconstructed |
-| **Clock integrity** | NTP + manual audit | AMD SecureTSC + NTS-authenticated NTP + cross-node validation |
+| **Trust model** | Hardware (certified HSM) + organizational (audits, ceremonies) | Cryptographic (hardware attestation, threshold crypto) |
+| **Key protection** | HSM with no-export keys; tamper-response destroys key material | 3-of-5 threshold shares, each in a separate enclave — key never reconstructed |
+| **Clock integrity** | HSM-internal clock with hardware-enforced adjustment limits and cryptographic audit log | AMD SecureTSC + NTS-authenticated NTP + cross-node validation |
 | **Quantum readiness** | None (RSA/ECDSA only) | Hybrid ML-DSA-65 + ECDSA P-384, backward compatible |
 | **Failure tolerance** | Single HSM = SPOF | 3-of-5 threshold; survives 2 simultaneous node failures |
-| **Verifiability** | Trust the audit report | Verify the attestation report yourself |
+| **Verifiability** | Trust the HSM certification and audit report | Verify the attestation report yourself |
 | **Multi-cloud** | Single datacenter | Nodes across Azure + GCP + third provider |
 
 ## System Architecture
