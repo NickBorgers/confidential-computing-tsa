@@ -22,11 +22,13 @@ For deeper treatment of specific topics, see the companion documents referenced 
 
 ## 1. Design Goals
 
-CC-TSA is designed around five core principles that collectively eliminate the organizational trust assumptions of traditional Timestamp Authorities.
+CC-TSA is designed around five core principles that collectively provide a different trust architecture from traditional HSM-based Timestamp Authorities.
 
 ### 1.1 Verifiable Trust via Hardware Attestation
 
-Traditional TSAs require relying parties to trust the *organization* operating the service — its auditors, its HSM policies, its physical security. CC-TSA replaces this with **cryptographic attestation**: every enclave node produces an AMD SEV-SNP attestation report signed by the AMD Secure Processor. This report binds the node's identity (measurement of firmware, kernel, and application), its runtime state, and its platform configuration to a hardware root of trust. Any party can verify this report against AMD's published VCEK certificates without trusting the cloud provider or the CC-TSA operator.
+Traditional TSAs protect their signing keys and clocks inside certified HSMs (e.g., FIPS 140-2 Level 4 devices such as the IBM 4767), which provide genuine hardware protections: no-export keys, tamper-response mechanisms that destroy key material, and hardware-enforced clock adjustment limits with cryptographic audit logs. These are strong protections, but relying parties must trust the HSM certification process and the organizational procedures surrounding it — they cannot independently verify the HSM's state at the time a timestamp was issued.
+
+CC-TSA takes a different approach with **remotely verifiable cryptographic attestation**: every enclave node produces an AMD SEV-SNP attestation report signed by the AMD Secure Processor. This report binds the node's identity (measurement of firmware, kernel, and application), its runtime state, and its platform configuration to a hardware root of trust. Any party can verify this report against AMD's published VCEK certificates without trusting the cloud provider or the CC-TSA operator.
 
 See [Threat Model](07-threat-model.md) for a full analysis of what attestation does and does not protect against.
 
