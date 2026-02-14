@@ -102,17 +102,20 @@ These estimates assume 4–8 vCPU nodes as specified in [Operations & Deployment
 
 ## 3. Comparison with DigiStamp
 
-DigiStamp operates traditional HSM-based Timestamp Authorities using IBM 4769 cryptographic coprocessors (FIPS 140-2 Level 4). The user's stated figure of **at least 40 timestamps per HSM per second** provides a useful benchmark.
+DigiStamp operates HSM-based Timestamp Authorities using IBM 4769 cryptographic coprocessors (FIPS 140-2 Level 4). These HSMs provide genuine hardware protections: keys are generated in no-export mode, tamper-response mechanisms destroy key material upon physical intrusion, and the internal clock enforces hardware limits on adjustments (no more than 120 seconds per 24-hour period) with every adjustment cryptographically logged. The stated figure of **at least 40 timestamps per HSM per second** provides a useful benchmark.
 
 ### 3.1 Architecture Differences
 
-| Dimension | DigiStamp (Traditional HSM) | CC-TSA (Confidential Computing) |
+| Dimension | DigiStamp (HSM-based) | CC-TSA (Confidential Computing) |
 |---|---|---|
-| **Trust model** | Organizational trust + FIPS 140-2 Level 4 HSM | Hardware attestation + threshold cryptography |
+| **Trust model** | Certified HSM hardware (FIPS 140-2 Level 4) + organizational procedures (audits, ceremonies) | Remotely verifiable hardware attestation + threshold cryptography |
 | **Signing hardware** | IBM 4769 dedicated HSM | AMD EPYC CPU inside SEV-SNP enclave |
-| **Key protection** | Key locked inside HSM; tamper-responsive enclosure | Key split into 5 shares across 3 providers; never assembled |
+| **Key protection** | No-export keys inside tamper-responsive HSM; physical intrusion destroys key material | Key split into 5 shares across 3 providers; key never exists in any single location |
+| **Clock integrity** | HSM-internal clock with hardware-enforced adjustment limits and cryptographic audit log | AMD SecureTSC + NTS-authenticated NTP + TriHaRd cross-node validation |
 | **Signing algorithm** | RSA-2048/4096 or ECC-256/512 | ML-DSA-65 (quantum-safe) + ECDSA P-384 (dual signature) |
 | **Quantum resistance** | No (RSA/ECC vulnerable to quantum) | Yes (ML-DSA-65 is post-quantum) |
+| **Verifiability** | Trust the HSM certification and audit reports | Any party can verify the AMD SEV-SNP attestation report independently |
+| **Single-device risk** | Single HSM is a single point of failure | 3-of-5 threshold; survives 2 simultaneous node failures |
 | **Throughput bottleneck** | HSM signing speed (hardware-limited) | Network round-trips for threshold coordination |
 | **Scaling mechanism** | Add more HSMs (physical hardware) | Add more enclave nodes (virtual machines) |
 | **Geographic distribution** | DigiStamp operates 3 locations with AWS Global Accelerator | Multi-provider by design (Azure + GCP + third) |
@@ -127,7 +130,7 @@ DigiStamp operates traditional HSM-based Timestamp Authorities using IBM 4769 cr
 | **CC-TSA: 5-node pipelined (multi-provider)** | ~500–1,500 tps | ~15.8–47.3 billion/year |
 | **CC-TSA: 5-node pipelined (single-provider)** | ~1,000–3,000 tps | ~31.5–94.6 billion/year |
 
-The CC-TSA baseline (multi-provider, serial mode) matches or exceeds DigiStamp's per-HSM throughput. With pipelining enabled, CC-TSA significantly exceeds DigiStamp's capacity because the cryptographic operations run on general-purpose CPUs that are orders of magnitude faster for ML-DSA/ECDSA signing than a dedicated HSM is for RSA signing.
+The CC-TSA baseline (multi-provider, serial mode) matches or exceeds DigiStamp's per-HSM throughput. With pipelining enabled, CC-TSA significantly exceeds DigiStamp's capacity because the cryptographic operations run on general-purpose CPUs that are faster for ML-DSA/ECDSA signing than a dedicated HSM is for RSA signing. Note that DigiStamp's HSM-based approach prioritizes certified hardware security (FIPS 140-2 Level 4) and operational simplicity over raw throughput — these are different architectural trade-offs.
 
 ### 3.3 Throughput-per-Dollar Comparison
 
@@ -138,7 +141,7 @@ The CC-TSA baseline (multi-provider, serial mode) matches or exceeds DigiStamp's
 | DigiStamp SecureTime Server (40 tps) | 40 tps | ~$80,000 (40 × $2,000) | $0.063 |
 | CC-TSA 5-node (multi-provider, pipelined) | ~500–1,500 tps | ~$75,000–$110,000 | $0.002–$0.007 |
 
-CC-TSA achieves a significantly lower cost per timestamp at scale because cloud VMs are cheaper per signing operation than dedicated HSM hardware, and the system scales via software concurrency rather than physical HSM procurement.
+CC-TSA achieves a lower cost per timestamp at scale because general-purpose CPUs in cloud VMs perform ML-DSA and ECDSA signing faster than dedicated HSMs perform RSA signing, and the system scales via software concurrency rather than physical HSM procurement. DigiStamp's cost includes the certified HSM hardware and audited operational procedures that provide its trust model.
 
 ---
 
@@ -363,7 +366,7 @@ All costs are estimated based on publicly available cloud pricing as of 2025. Ac
 | **CC-TSA optimized (Strategy 1)** | 3,000 tps | ~$140,000 | $0.003 |
 | **CC-TSA + coordinators (Strategy 2)** | 15,000 tps | ~$171,000 | $0.0007 |
 
-At scale, CC-TSA's cost per timestamp is 1–2 orders of magnitude lower than DigiStamp's on-premises offering, while also providing quantum-safe signatures and hardware-attested trust rather than organizational trust.
+At scale, CC-TSA's cost per timestamp is 1–2 orders of magnitude lower than DigiStamp's on-premises offering. CC-TSA additionally provides quantum-safe signatures, remotely verifiable attestation, and distributed trust across multiple providers. DigiStamp provides FIPS 140-2 Level 4 certified hardware protections and a 20+ year operational track record — these are different trust models serving different requirements.
 
 ---
 
@@ -385,7 +388,7 @@ The following table provides a quick-reference guide for selecting the appropria
 
 2. **Pipelining unlocks an order of magnitude more throughput at zero additional infrastructure cost.** Enabling concurrent signing sessions on the existing 5-node cluster reaches 500–1,500 tps.
 
-3. **CC-TSA's cost per timestamp at scale is 10–100x lower than DigiStamp's.** This is because general-purpose CPUs perform ML-DSA and ECDSA signing much faster than dedicated HSMs perform RSA signing, and cloud VMs scale more cheaply than physical HSM hardware.
+3. **CC-TSA's cost per timestamp at scale is 10–100x lower than DigiStamp's.** This is because general-purpose CPUs perform ML-DSA and ECDSA signing faster than dedicated HSMs perform RSA signing, and cloud VMs scale more cheaply than physical HSM hardware. DigiStamp's cost reflects its FIPS 140-2 Level 4 certified hardware and audited operational procedures — different trust models carry different cost structures.
 
 4. **The scaling path is incremental.** Each strategy builds on the previous one without requiring changes to the threshold signing protocol or re-issuance of the TSA certificate (except Strategy 4, which is optional and not recommended for most deployments).
 
