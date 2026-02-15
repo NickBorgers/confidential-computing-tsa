@@ -331,6 +331,8 @@ If lattice-based cryptography is broken:
 
 **Result**: Attack fails. The operator cannot influence the genTime value in any way.
 
+**Note on traditional HSM-based TSAs**: FIPS 140-2 Level 4 HSMs (such as the IBM 4767 used by DigiStamp) also provide hardware protections against clock manipulation — the HSM enforces limits on clock adjustments (e.g., no more than 120 seconds in any 24-hour period) and cryptographically logs every adjustment. These protections are genuine hardware controls, not merely organizational policies. CC-TSA's advantage in this scenario is the combination of distributed trust (no single device to target), remotely verifiable attestation (any party can verify the enclave state), and cross-node time validation (TriHaRd consensus across 5 independent nodes).
+
 ### Scenario 4: Quantum Computer Attacks Old Timestamps
 
 **Attack**: In 2040, an adversary with a quantum computer forges the ECDSA P-384 signature on an old timestamp and attempts to pass it off as genuine.

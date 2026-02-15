@@ -1089,3 +1089,4 @@ This section maps the CC-TSA design and operational procedures to the requiremen
 | Failure scenarios, recovery procedures, resilience | [Failure Modes and Recovery](04-failure-modes-and-recovery.md) |
 | RFC 3161 token format, hybrid signatures, compatibility | [RFC 3161 Compliance](06-rfc3161-compliance.md) |
 | Threat model, STRIDE analysis, residual risks | [Threat Model](07-threat-model.md) |
+| Throughput analysis, scaling strategy, cost estimates | [Throughput & Scaling](08-throughput-and-scaling.md) |
