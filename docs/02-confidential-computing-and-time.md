@@ -68,7 +68,7 @@ This measurement is recorded in the guest's launch digest, analogous to TPM PCR 
 - **VLEK (Versioned Loaded Endorsement Key)**: Alternative to VCEK, provisioned by AMD to cloud providers. Allows attestation without revealing which specific chip is in use (privacy enhancement).
 - The VCEK/VLEK chains up to AMD's **ASK (AMD SEV Signing Key)** and then to the **ARK (AMD Root Key)**.
 
-For CC-TSA, remote attestation is the gating mechanism for key release. The KMS (Azure Key Vault MHSM or GCP Cloud KMS) verifies the attestation report before releasing a sealed key share. If the measurement does not match the expected value, or if the policy flags indicate debugging is enabled, the key share is withheld. See [Architecture Overview](01-architecture-overview.md) for how this fits into the deployment flow.
+For CC-TSA, remote attestation is the gating mechanism for DKG participation. During the mutual attestation phase of each DKG ceremony, every peer node verifies the attestation report of every other node. If the measurement does not match the expected value, or if the policy flags indicate debugging is enabled, the node is rejected from the DKG ceremony and does not receive a key share. See [Architecture Overview](01-architecture-overview.md) for how this fits into the deployment flow.
 
 ### SecureTSC
 
@@ -423,7 +423,7 @@ For multi-cloud deployments (e.g., nodes in Azure West US and GCP us-west1), int
 
 ## 7. Attestation Boot Chain
 
-The attestation boot chain establishes trust from the hardware root (AMD-SP) through the firmware, operating system, and application layers, culminating in a remote attestation report that gates key release.
+The attestation boot chain establishes trust from the hardware root (AMD-SP) through the firmware, operating system, and application layers, culminating in a remote attestation report that **verifies node identity during DKG**. Each node's attestation report proves to its peers that it is running the expected software on genuine AMD hardware — this mutual verification is the prerequisite for any node to participate in Distributed Key Generation and receive a key share.
 
 ```mermaid
 flowchart TB
@@ -437,25 +437,25 @@ flowchart TB
 
     REPORT["<b>Attestation Report</b><br/>Requested via /dev/sev-guest<br/>Contains: launch measurement +<br/>HOST_DATA (64B, e.g., hash of config)<br/>Signed by AMD-SP (VCEK/VLEK)"]
 
-    KMS["<b>Remote Verifier / KMS</b><br/>Verifies report against AMD<br/>certificate chain (VCEK → ASK → ARK)<br/>Checks measurement matches expected<br/>Checks policy (no debug, no migration)<br/>On success: releases sealed key share<br/>via Secure Key Release protocol"]
+    DKG_PEERS["<b>Peer Nodes (DKG)</b><br/>Each peer verifies report against AMD<br/>certificate chain (VCEK → ASK → ARK)<br/>Checks measurement matches expected<br/>Checks policy (no debug, no migration)<br/>On success: accepts node as<br/>DKG participant"]
 
     AMDSP -->|"1. Measures firmware image<br/>→ launch digest"| OVMF
     OVMF -->|"2. Loads and measures<br/>kernel + initrd"| KERNEL
     KERNEL -->|"3. Boots OS, verifies rootfs<br/>via dm-verity"| TSA_APP
     TSA_APP -->|"4. Requests attestation report<br/>with HOST_DATA = hash(config)"| REPORT
-    REPORT -->|"5. Report sent to KMS<br/>for verification"| KMS
-    KMS -->|"6. On success: sealed key share<br/>released to enclave"| TSA_APP
+    REPORT -->|"5. Report sent to peer nodes<br/>for mutual verification"| DKG_PEERS
+    DKG_PEERS -->|"6. On success: node accepted<br/>as DKG participant,<br/>receives key share"| TSA_APP
 
     AMD_CHAIN["<b>AMD Certificate Chain</b><br/>ARK (AMD Root Key)<br/>&darr;<br/>ASK (AMD SEV Signing Key)<br/>&darr;<br/>VCEK/VLEK (Chip/Loaded Key)"]
 
-    AMD_CHAIN -.->|"Verifies signature on<br/>attestation report"| KMS
+    AMD_CHAIN -.->|"Verifies signature on<br/>attestation report"| DKG_PEERS
 
     style AMDSP fill:#fff3e0,stroke:#FF9800,stroke-width:3px
     style OVMF fill:#e8f4fd,stroke:#2196F3,stroke-width:2px
     style KERNEL fill:#e8f4fd,stroke:#2196F3,stroke-width:2px
     style TSA_APP fill:#e8f5e9,stroke:#4CAF50,stroke-width:2px
     style REPORT fill:#f3e5f5,stroke:#9C27B0,stroke-width:2px
-    style KMS fill:#fce4ec,stroke:#E91E63,stroke-width:2px
+    style DKG_PEERS fill:#fce4ec,stroke:#E91E63,stroke-width:2px
     style AMD_CHAIN fill:#fff3e0,stroke:#FF9800,stroke-width:2px
 ```
 
@@ -467,19 +467,19 @@ flowchart TB
 
 **Step 3 -- Kernel boots and verifies rootfs**: The Linux kernel boots, initializes the SEV guest driver (`/dev/sev-guest`), sets up encrypted page tables, and mounts the root filesystem. The root filesystem is protected by **dm-verity**, which provides block-level integrity verification using a Merkle tree. Any attempt to tamper with the rootfs (including the TSA application binary) is detected and causes a read error.
 
-**Step 4 -- TSA application requests attestation**: The TSA application starts and immediately requests an attestation report from the AMD-SP via `/dev/sev-guest`. It provides 64 bytes of `HOST_DATA`, which typically contains a hash of the application configuration (e.g., the expected NTS servers, threshold parameters, node identity). It also provides 64 bytes of `REPORT_DATA`, which contains a freshness nonce (e.g., a challenge from the KMS).
+**Step 4 -- TSA application requests attestation**: The TSA application starts and immediately requests an attestation report from the AMD-SP via `/dev/sev-guest`. It provides 64 bytes of `HOST_DATA`, which typically contains a hash of the application configuration (e.g., the expected NTS servers, threshold parameters, node identity). It also provides 64 bytes of `REPORT_DATA`, which contains a freshness nonce (e.g., a DKG session identifier for mutual attestation).
 
-**Step 5 -- Report sent to KMS for verification**: The attestation report, signed by the AMD-SP using the VCEK (or VLEK), is sent to the KMS (Azure Key Vault MHSM or GCP Cloud KMS). The KMS has been pre-configured with the expected launch measurement, VM policy, and HOST_DATA hash.
+**Step 5 -- Report sent to peer nodes for mutual verification**: The attestation report, signed by the AMD-SP using the VCEK (or VLEK), is sent to all peer enclave nodes during the DKG ceremony's mutual attestation phase. Each peer independently verifies the report.
 
-**Step 6 -- KMS releases sealed key share**: The KMS verifies:
+**Step 6 -- Peers accept node as DKG participant**: Each peer node verifies:
 - The report signature chains to AMD's root of trust (ARK → ASK → VCEK/VLEK).
-- The launch measurement matches the expected value (correct firmware, kernel, and initrd).
+- The launch measurement matches the expected value (correct firmware, kernel, and initrd — all nodes must run the same software).
 - The VM policy flags are correct (debugging disabled, migration disabled).
 - The HOST_DATA matches the expected application configuration hash.
-- The REPORT_DATA contains a valid nonce (freshness).
+- The REPORT_DATA contains a valid DKG session nonce (freshness).
 - The platform TCB version is at or above the minimum required version.
 
-If all checks pass, the KMS releases the node's sealed key share via the **Secure Key Release** protocol. The key share is encrypted to the enclave's public key (derived from the attestation) and can only be decrypted inside the enclave. See [Architecture Overview](01-architecture-overview.md) for how key shares are combined for threshold signing.
+If all checks pass, the node is accepted as a participant in the DKG ceremony and will receive a key share as part of the distributed key generation protocol. Key shares are held in enclave memory only — they are never persisted to durable storage. See [Architecture Overview](01-architecture-overview.md) for how key shares are combined for threshold signing.
 
 ---
 
