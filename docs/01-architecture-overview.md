@@ -17,6 +17,7 @@ For deeper treatment of specific topics, see the companion documents referenced 
 5. [Timestamp Request Lifecycle](#5-timestamp-request-lifecycle)
 6. [Deployment Topology](#6-deployment-topology)
 7. [Minimum Nodes for Operation](#7-minimum-nodes-for-operation)
+8. [Software Immutability and Measurement Identity](#8-software-immutability-and-measurement-identity)
 
 ---
 
@@ -71,7 +72,7 @@ The primary deployment target is AMD SEV-SNP confidential VMs, available on Azur
 
 ## 2. System Components
 
-The CC-TSA system comprises six major component groups. The following diagram provides a high-level view; each component is described in detail below.
+The CC-TSA system comprises five major component groups. The following diagram provides a high-level view; each component is described in detail below.
 
 ```mermaid
 graph TB
@@ -99,8 +100,6 @@ graph TB
     end
 
     subgraph Key Infrastructure
-        KMS1[Azure Key Vault<br/>Managed HSM]
-        KMS2[GCP Cloud KMS]
         CA[Certificate Authority]
     end
 
@@ -114,9 +113,6 @@ graph TB
     LB --> E1 & E2 & E3 & E4 & E5
     E1 <--> E2 <--> E3 <--> E4 <--> E5
     E1 & E2 & E3 & E4 & E5 --> NTS1 & NTS2 & NTS3 & NTS4
-    E1 & E2 --> KMS1
-    E3 & E4 --> KMS2
-    E5 --> KMS1
     CA -.->|Issues TSA certificate| E1
     E1 & E2 & E3 & E4 & E5 --> MON
     MON --> ALERT
@@ -133,10 +129,10 @@ Each enclave node is an AMD SEV-SNP confidential VM running the CC-TSA applicati
 |---|---|
 | **Threshold Signing Participant** | Holds one key share (from DKG). Participates in 2-round threshold signing protocol when selected. Generates partial commitments and partial signatures. |
 | **Time Validation Engine** | Reads the hardware TSC via SecureTSC for a tamper-resistant time source. Periodically cross-validates against NTS-authenticated NTP servers using the TriHaRd Byzantine fault-tolerant protocol. Rejects time if drift exceeds tolerance. |
-| **Attestation Module** | Generates SNP attestation reports on demand (for verifiers) and at boot (for KMS-based key unsealing). Binds the node's measurement, guest policy, and platform info to the AMD hardware root of trust. |
+| **Attestation Module** | Generates SNP attestation reports on demand (for verifiers) and during DKG (for mutual attestation). Binds the node's measurement, guest policy, and platform info to the AMD hardware root of trust. |
 | **RFC 3161 Request Handler** | Parses `TimeStampReq`, validates hash algorithm and policy OID, constructs `TSTInfo`, orchestrates threshold signing, assembles `TimeStampResp`. |
 | **Coordinator Logic** | When a node is selected as coordinator for a request, it drives the threshold signing rounds, collects partial signatures, and combines them into the final signature. Any node can serve as coordinator. |
-| **Key Share Storage** | The key share is held in memory during operation. At rest, it is wrapped (encrypted) by the provider's KMS under a key that can only be released to an attested enclave (Secure Key Release). |
+| **Key Share Storage** | The key share exists only in enclave memory during operation. There is no at-rest persistence. If the node reboots, its key share is irrecoverably lost. Recovery requires a new DKG ceremony if quorum (≥3 shares) is no longer available. |
 
 **Enclave properties enforced by AMD SEV-SNP:**
 
@@ -184,26 +180,7 @@ This dual-source approach (hardware TSC + authenticated NTP) ensures that even i
 
 See [Confidential Computing & Time](02-confidential-computing-and-time.md) for the full trusted time architecture.
 
-### 2.4 KMS (Per-Provider)
-
-Each cloud provider hosts a KMS instance that wraps (encrypts) the key shares belonging to the enclave nodes in that provider's infrastructure.
-
-| Provider | KMS Service | Key Type | Release Condition |
-|---|---|---|---|
-| Azure | Azure Key Vault with Managed HSM (MHSM) | RSA-OAEP or AES-256 wrapping key | Secure Key Release: SNP attestation report must match expected measurement, guest policy, and minimum firmware version |
-| GCP | Cloud KMS (Confidential Computing key) | AES-256 wrapping key | Confidential Computing attestation: SNP attestation report verified against expected measurements |
-
-**Key lifecycle with KMS:**
-
-1. **DKG completion**: After distributed key generation, each node holds a key share in memory.
-2. **Sealing**: The node wraps its key share using the provider's KMS. The KMS encrypts the share under a key that is bound to the node's attestation policy — only an enclave with the correct measurement can unseal it.
-3. **Persistence**: The wrapped (encrypted) key share is stored on durable storage (e.g., Azure Blob, GCP Cloud Storage). It is ciphertext outside the enclave.
-4. **Unsealing at boot**: When a node boots, it generates a fresh SNP attestation report, presents it to the KMS, and requests Secure Key Release. The KMS verifies the attestation, and if valid, releases the wrapping key. The node decrypts its key share into enclave memory.
-5. **Key share is never plaintext outside the enclave**: The KMS holds the wrapping key; the storage holds the wrapped share. Neither alone yields the plaintext key share.
-
-See [Quantum-Safe Threshold Cryptography](03-quantum-safe-threshold-crypto.md) for DKG and key share management details.
-
-### 2.5 Certificate Authority
+### 2.4 Certificate Authority
 
 A Certificate Authority (CA) issues the X.509 certificate that binds the TSA's public signing key to the TSA's identity. This certificate is included in every timestamp token so that verifiers can chain trust from the token back to a trusted root.
 
@@ -221,7 +198,7 @@ The CA can be a public CA, a private enterprise CA, or a purpose-built CA for th
 - The TSA's policy OID in the certificate policies extension
 - The combined public key (ML-DSA-65 and/or ECDSA P-384, depending on certificate encoding strategy)
 
-### 2.6 Monitoring
+### 2.5 Monitoring
 
 The monitoring subsystem provides visibility into cluster health, performance, and security posture.
 
@@ -233,14 +210,14 @@ The monitoring subsystem provides visibility into cluster health, performance, a
 | **Time drift** | SecureTSC vs. NTS delta per node, inter-node clock skew | > 50 microseconds drift |
 | **Attestation status** | Attestation report validity, measurement changes, firmware versions | Any attestation failure |
 | **Signing performance** | Threshold signing latency (p50, p95, p99), request throughput | p99 > 500ms |
-| **Key share status** | Key share sealed/unsealed, KMS connectivity | Any unsealing failure |
+| **Key share status** | Key share present in memory, DKG ceremony status | Any key share loss |
 | **NTS source health** | NTS server reachability, response validity, stratum changes | < 3 NTS sources reachable |
 
 **Alerting tiers:**
 
 - **Critical**: Quorum lost (< 3 nodes), attestation failure, time drift > tolerance. Pages on-call immediately.
 - **Warning**: Degraded quorum (3 nodes), single NTS source unreachable, elevated signing latency. Notifies team.
-- **Info**: Node restart, key share re-sealed, NTS source stratum change. Logged for audit.
+- **Info**: Node restart, DKG ceremony triggered, NTS source stratum change. Logged for audit.
 
 See [Operations and Deployment](05-operations-and-deployment.md) for monitoring setup and runbooks.
 
@@ -259,7 +236,7 @@ graph TB
         style CloudProvider fill:#fee,stroke:#c00,stroke-width:2px,color:#333
 
         NET[Network Infrastructure<br/>UNTRUSTED]
-        STOR[Storage Infrastructure<br/>UNTRUSTED — only sees ciphertext]
+        STOR[Storage Infrastructure<br/>UNTRUSTED — no key material stored]
 
         subgraph Hypervisor["Hypervisor Layer (UNTRUSTED — excluded from TCB)"]
             direction TB
@@ -315,10 +292,10 @@ graph TB
 | Component | Trust Status | Rationale |
 |---|---|---|
 | **AMD Secure Processor** | Trusted (hardware root) | Manages encryption keys, signs attestation reports, calibrates SecureTSC. Silicon-level trust anchor manufactured by AMD. |
-| **Guest OS + Kernel** (inside CVM) | Trusted (measured) | Measured at boot and included in the attestation report. Any change to the OS or kernel changes the measurement, which would cause attestation to fail and KMS to refuse key release. |
+| **Guest OS + Kernel** (inside CVM) | Trusted (measured) | Measured at boot and included in the attestation report. Any change to the OS or kernel changes the measurement, which invalidates the attestation and requires a new DKG ceremony with a new certificate. |
 | **TSA Application** (inside CVM) | Trusted (measured) | Same as above — the application binary is measured at boot. |
 | **Hypervisor / VMM** | **Untrusted** | Explicitly excluded from the Trusted Computing Base. SEV-SNP is designed so that a compromised hypervisor cannot read enclave memory, tamper with execution, or forge attestation reports. |
-| **Cloud provider infrastructure** | **Untrusted** | Network, storage, and management plane are outside the trust boundary. Storage only ever sees ciphertext (wrapped key shares). Network traffic is encrypted via mTLS. |
+| **Cloud provider infrastructure** | **Untrusted** | Network, storage, and management plane are outside the trust boundary. Key shares exist only in enclave memory — no key material is persisted to provider storage. Network traffic is encrypted via mTLS. |
 | **External verifier** | Trusted (by relying party) | The relying party chooses to trust the attestation verification result. The verification itself is purely cryptographic — checking the SNP report signature against AMD's certificate chain. |
 
 ### 3.3 What the Hypervisor Cannot Do
@@ -369,15 +346,14 @@ The CC-TSA security model requires distributing nodes so that no single cloud pr
 
 **3. Mature attestation ecosystem.**
 
-AMD SEV-SNP attestation is well-supported by Azure (Microsoft Azure Attestation service, Secure Key Release) and GCP (Confidential Computing attestation API). Both providers offer KMS integration conditioned on SNP attestation, which CC-TSA uses for key share sealing/unsealing.
+AMD SEV-SNP attestation is well-supported by Azure (Microsoft Azure Attestation service) and GCP (Confidential Computing attestation API). Both providers support attestation verification, which CC-TSA uses for mutual attestation during DKG ceremonies.
 
 ### 4.3 Intel TDX as an Alternative
 
-Intel TDX is a viable alternative platform and may become preferred for certain deployments as it reaches general availability on multiple clouds. The CC-TSA application logic is designed to be platform-agnostic where possible, with a platform abstraction layer for attestation report generation, time source access, and KMS integration. Porting to TDX would require:
+Intel TDX is a viable alternative platform and may become preferred for certain deployments as it reaches general availability on multiple clouds. The CC-TSA application logic is designed to be platform-agnostic where possible, with a platform abstraction layer for attestation report generation and time source access. Porting to TDX would require:
 
 - Replacing SNP attestation report generation with TD Quote generation.
 - Replacing SecureTSC time reads with TDX-specific TSC access (or relying more heavily on NTS).
-- Updating KMS policies to accept TDX attestation.
 
 ---
 
@@ -530,10 +506,10 @@ In a single-provider deployment, all 5 enclave nodes run on Azure DCasv5 (or ECa
 
 **Layout:**
 
-| Location | Nodes | Availability Zones | KMS |
-|---|---|---|---|
-| **Region 1 (Primary)** — e.g., East US | 3 nodes (Enclave 1, 2, 3) | Spread across AZ 1 and AZ 2 | Azure Key Vault MHSM (Region 1) |
-| **Region 2 (DR)** — e.g., West Europe | 2 nodes (Enclave 4, 5) | Spread across AZ 1 and AZ 2 | Azure Key Vault MHSM (Region 2) |
+| Location | Nodes | Availability Zones |
+|---|---|---|
+| **Region 1 (Primary)** — e.g., East US | 3 nodes (Enclave 1, 2, 3) | Spread across AZ 1 and AZ 2 |
+| **Region 2 (DR)** — e.g., West Europe | 2 nodes (Enclave 4, 5) | Spread across AZ 1 and AZ 2 |
 
 **Properties:**
 
@@ -549,11 +525,11 @@ In the multi-provider deployment, nodes are distributed across cloud providers s
 
 **Layout:**
 
-| Provider | Nodes | VM Type | KMS |
-|---|---|---|---|
-| **Azure** | 2 nodes (Enclave 1, 2) | DCasv5 (SEV-SNP) | Azure Key Vault MHSM |
-| **GCP** | 2 nodes (Enclave 3, 4) | C3D Confidential VM (SEV-SNP) | GCP Cloud KMS |
-| **Third Provider** | 1 node (Enclave 5) | SEV-SNP capable VM | Azure Key Vault MHSM (or provider-native KMS) |
+| Provider | Nodes | VM Type |
+|---|---|---|
+| **Azure** | 2 nodes (Enclave 1, 2) | DCasv5 (SEV-SNP) |
+| **GCP** | 2 nodes (Enclave 3, 4) | C3D Confidential VM (SEV-SNP) |
+| **Third Provider** | 1 node (Enclave 5) | SEV-SNP capable VM |
 
 **Security property:** Compromise of any single provider yields at most 2 key shares — below the threshold of 3. An attacker must compromise nodes across at least 2 providers to reach the signing threshold.
 
@@ -571,8 +547,6 @@ graph TB
 
         E1 --- AZ_AZ1
         E2 --- AZ_AZ2
-
-        KMS_AZ[Azure Key Vault<br/>Managed HSM]
     end
 
     subgraph GCP["GCP (2 nodes)"]
@@ -585,14 +559,11 @@ graph TB
 
         E3 --- GCP_Z1
         E4 --- GCP_Z2
-
-        KMS_GCP[GCP Cloud KMS]
     end
 
     subgraph ThirdProvider["Third Provider (1 node)"]
         direction TB
         E5[Enclave Node 5<br/>SEV-SNP<br/>Key Share 5]
-        KMS_TP[KMS<br/>or Azure MHSM]
     end
 
     subgraph CrossProviderMesh["Cross-Provider Mesh Network (mTLS, WireGuard)"]
@@ -605,10 +576,6 @@ graph TB
     E3 <-->|mTLS| MESH
     E4 <-->|mTLS| MESH
     E5 <-->|mTLS| MESH
-
-    E1 & E2 -.->|Secure Key Release| KMS_AZ
-    E3 & E4 -.->|Attestation-based release| KMS_GCP
-    E5 -.->|Secure Key Release| KMS_TP
 
     LB_GLOBAL[Global Load Balancer<br/>GeoDNS / Anycast]
     LB_GLOBAL --> E1 & E2 & E3 & E4 & E5
@@ -631,7 +598,7 @@ The mesh uses mTLS with certificates attested to each node's enclave identity. A
 | Protection against single-AZ failure | Yes (cross-AZ) | Yes (cross-zone) |
 | Protection against single-region failure | Yes (cross-region) | Yes (cross-provider) |
 | Protection against single-provider compromise | **No** | **Yes** |
-| Operational complexity | Lower | Higher (multi-cloud networking, multiple KMS integrations) |
+| Operational complexity | Lower | Higher (multi-cloud networking, cross-provider DKG coordination) |
 | Latency (threshold signing) | Lower (intra-provider) | Higher (cross-provider, +10–30 ms) |
 
 For production deployments handling high-value timestamps, the multi-provider topology is recommended.
@@ -661,7 +628,7 @@ The CC-TSA cluster operates with a **3-of-5 threshold**: at least 3 enclave node
 
 - **Critical (3 nodes):** Two nodes are offline. Signing continues but there is **zero fault tolerance margin** — if any one of the remaining 3 nodes fails, signing halts. This state requires **immediate action** to restore at least one offline node. An on-call page is triggered.
 
-- **Unavailable (< 3 nodes):** Signing is halted. The cluster cannot produce valid threshold signatures. The load balancer returns HTTP 503 to all timestamp requests. This is a **P1 incident** requiring immediate response. Recovery involves booting offline enclave nodes, which must attest to the KMS and unseal their key shares (typically 5–15 minutes per node).
+- **Unavailable (< 3 nodes):** Signing is halted. The cluster cannot produce valid threshold signatures. The load balancer returns HTTP 503 to all timestamp requests. This is a **P1 incident** requiring immediate response. Since key shares exist only in enclave memory, recovery requires a new DKG ceremony and new certificate issuance once sufficient nodes are online.
 
 See [Failure Modes and Recovery](04-failure-modes-and-recovery.md) for detailed recovery procedures for each failure scenario.
 
@@ -670,10 +637,40 @@ See [Failure Modes and Recovery](04-failure-modes-and-recovery.md) for detailed 
 The threshold parameters (t=3, n=5) balance security and availability:
 
 - **Security**: An attacker must compromise 3 nodes to forge a signature. In the multi-provider topology, this requires compromising nodes across at least 2 cloud providers.
-- **Availability**: The system tolerates 2 simultaneous node failures while maintaining signing capability. This allows for rolling updates, AZ failures, and individual node issues without downtime.
+- **Availability**: The system tolerates 2 simultaneous node failures while maintaining signing capability. This allows for AZ failures and individual node issues without downtime.
 - **Efficiency**: The threshold signing protocol requires only 3 nodes to participate per signature, keeping latency low even when all 5 are online (the coordinator selects the 2 fastest-responding participants).
 
 A 2-of-5 threshold would improve availability (tolerates 3 failures) but weakens security (only 2 nodes needed to forge). A 4-of-5 threshold would improve security but makes the system fragile (any single node failure blocks signing). The 3-of-5 configuration is the standard recommendation for Byzantine fault-tolerant systems with 5 nodes.
+
+---
+
+## 8. Software Immutability and Measurement Identity
+
+CC-TSA software is **immutable for the lifetime of a signing key**. Once a DKG ceremony produces key shares and a corresponding TSA certificate is issued, the software running in the enclave nodes does not change. This design binds the software identity to the cryptographic identity of the TSA.
+
+### Attestation Measurement as Cryptographic Identity
+
+When the DKG ceremony completes, the attestation measurement (the hash of the firmware, kernel, and application running in each enclave) is recorded and published alongside the TSA certificate. This measurement serves as a permanent record of exactly what software produced the key shares and will sign all timestamps under this certificate.
+
+Relying parties can:
+
+1. Obtain the TSA certificate and its associated attestation measurement.
+2. Request a live attestation report from any enclave node.
+3. Verify that the live measurement matches the published measurement — confirming the node is running the exact same software that participated in the DKG ceremony.
+
+This provides a property that traditional TSAs cannot offer: **cryptographic proof of what code produced a given timestamp**, not just trust in an organization's deployment practices.
+
+### Software Change Procedure
+
+Because the software is immutable for the lifetime of a signing key, any software change (security patches, feature updates, configuration changes that affect the measurement) follows a key rotation procedure:
+
+1. **Retire the current key**: Announce end-of-life for the current TSA certificate. Continue signing with the existing key until the new deployment is ready.
+2. **Deploy new software**: Launch new enclave nodes running the updated software. The new nodes will have a different attestation measurement.
+3. **New DKG ceremony**: The new enclave nodes perform a fresh DKG, generating new key shares and a new public key.
+4. **New certificate issuance**: A new TSA certificate is issued for the new public key, with the new attestation measurement published alongside it.
+5. **Cutover**: Transition signing to the new cluster. The old certificate can be revoked or allowed to expire.
+
+This procedure ensures there is never ambiguity about which software version signed a given timestamp. Each certificate corresponds to exactly one software measurement.
 
 ---
 
