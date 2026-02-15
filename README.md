@@ -11,7 +11,7 @@ CC-TSA replaces that trust model with **cryptographic attestation** and **hardwa
 | Property | Traditional TSA | CC-TSA |
 |---|---|---|
 | **Trust model** | Organizational (audits, policies, certifications) | Cryptographic (hardware attestation, threshold crypto) |
-| **Key protection** | HSM with admin access | 3-of-5 threshold shares, each in a separate enclave — key never reconstructed |
+| **Key protection** | HSM with admin access | 3-of-5 threshold shares, each in a separate enclave — key never reconstructed. Keys are ephemeral (memory-only) and attestation measurement is bound to the certificate |
 | **Clock integrity** | NTP + manual audit | AMD SecureTSC + NTS-authenticated NTP + cross-node validation |
 | **Quantum readiness** | None (RSA/ECDSA only) | Hybrid ML-DSA-65 + ECDSA P-384, backward compatible |
 | **Failure tolerance** | Single HSM = SPOF | 3-of-5 threshold; survives 2 simultaneous node failures |
@@ -46,8 +46,6 @@ graph TB
     end
 
     subgraph Key Infrastructure
-        KMS1[Azure Key Vault<br/>MHSM]
-        KMS2[GCP Cloud KMS]
         CA[Certificate Authority]
     end
 
@@ -58,9 +56,6 @@ graph TB
     C1 & C2 & C3 --> LB
     LB --> E1 & E2 & E3 & E4 & E5
     E1 & E2 & E3 & E4 & E5 --> NTS1 & NTS2 & NTS3 & NTS4
-    E1 & E2 --> KMS1
-    E3 & E4 --> KMS2
-    E5 --> KMS1
     CA -.->|Issues TSA cert| E1
     E1 & E2 & E3 & E4 & E5 --> MON
 ```
@@ -90,8 +85,8 @@ graph TB
 | Question | Answer |
 |---|---|
 | How many nodes needed to sign? | **Minimum 3** of 5 (threshold). Recommend **4+ online** for fault tolerance. |
-| What if all nodes go offline? | Signing halts. Key shares survive in KMS-backed sealed storage. Boot → attest → unseal → resume in **5–15 minutes**. See [Failure Modes](docs/04-failure-modes-and-recovery.md). |
-| Can the private key be lost? | **Not in normal operation** — KMS-backed persistence survives restarts. Only if ≥3 sealed shares are *permanently destroyed*, requiring new DKG + new certificate. Old timestamps remain valid. |
+| What if all nodes go offline? | Signing halts. Key shares exist only in enclave memory — if all nodes go offline, the key is lost. A new DKG ceremony + new certificate is required to resume signing. Old timestamps remain valid. See [Failure Modes](docs/04-failure-modes-and-recovery.md). |
+| Can the private key be lost? | **Yes, by design** — key shares exist only in enclave memory. If fewer than 3 nodes remain running, a new DKG ceremony + new certificate is required. Old timestamps remain valid. |
 | Multi-cloud support? | Yes. Distribute nodes so no provider hosts ≥3 (e.g., 2 Azure + 2 GCP + 1 third provider). See [Architecture](docs/01-architecture-overview.md). |
 | Quantum safe? | Hybrid ML-DSA-65 + ECDSA P-384. Classical verifiers work today; PQC verifiers ready when needed. Conservative SLH-DSA-128f backup available. |
 
