@@ -16,3 +16,6 @@ Thumbs.db
 # Environment
 .env
 .env.local
+
+# CI-generated files
+existing-github-actions-issues.json
