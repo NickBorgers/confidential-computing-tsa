@@ -48,8 +48,10 @@ RUN npm install -g markdownlint-cli markdown-link-check
 # Install Playwright browsers to a system-wide path so they survive
 # devcontainer feature overlays that may reset /home/vscode.
 # This prevents Chrome from being re-downloaded on every container start.
+# Pin the version to match the playwright-skill plugin's dependency (^1.57.0)
+# to ensure the cached Chromium revision matches what the plugin expects.
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
-RUN npm install -g playwright \
+RUN npm install -g playwright@1.58.2 \
     && mkdir -p /opt/playwright-browsers \
     && npx playwright install chromium \
     && chmod -R a+rx /opt/playwright-browsers
