@@ -670,11 +670,16 @@ Accuracy ::= SEQUENCE {
 }
 ```
 
-Per RFC 3161 Section 2.4.2, the true time of the timestamp is guaranteed to be within `[genTime - accuracy, genTime + accuracy]`. A verifier should interpret this as: "The actual UTC time at which the TSA created this token is within 1 second of the stated `genTime`."
+Per RFC 3161 Section 2.4.2, the true time of the timestamp is guaranteed to be within
+`[genTime - accuracy, genTime + accuracy]`. A verifier should interpret this as:
+"The actual UTC time at which the TSA created this token is within 1 second of the stated `genTime`."
 
 ### CC-TSA Accuracy: 1 Second
 
-CC-TSA sets the `accuracy` field to `{seconds: 1, millis: 0, micros: 0}`, representing a maximum deviation of 1 second from UTC. This conservative value reflects that timestamping is not latency-sensitive work and provides generous margin for all operating conditions.
+CC-TSA sets the `accuracy` field to `{seconds: 1, millis: 0, micros: 0}`,
+representing a maximum deviation of 1 second from UTC.
+This conservative value reflects that timestamping is not latency-sensitive work
+and provides generous margin for all operating conditions.
 
 ```mermaid
 flowchart TD
@@ -721,13 +726,18 @@ For a detailed breakdown of the time trust chain that produces this precision, s
 
 The 1-second accuracy field provides approximately a 10x safety margin over the TriHaRd consensus threshold of 100ms. This conservatism is intentional:
 
-1. **Timestamping is not latency-sensitive**: RFC 3161 timestamps prove that data existed before a certain time. For the vast majority of use cases — document signing, code signing, compliance logging — 1-second accuracy is more than sufficient.
+1. **Timestamping is not latency-sensitive**: RFC 3161 timestamps prove that data existed before a certain time.
+   For the vast majority of use cases — document signing, code signing, compliance logging —
+   1-second accuracy is more than sufficient.
 
 2. **Industry alignment**: Many production TSAs claim 1-second accuracy. The CC-TSA's 1-second claim aligns with industry norms, avoiding over-specification that could be invalidated under adverse conditions.
 
 3. **Operational margin**: The generous margin absorbs rare NTP outliers, cross-provider network congestion spikes, and transient degradation without producing timestamps that violate the stated accuracy.
 
-4. **Future tightening**: The accuracy field can be reduced in future deployments if tighter precision is required. Reducing the stated accuracy is a non-breaking change — it only improves the guarantee for verifiers. The underlying hardware (SecureTSC) provides sub-millisecond precision, so tightening is straightforward if a use case demands it.
+4. **Future tightening**: The accuracy field can be reduced in future deployments if tighter precision is required.
+   Reducing the stated accuracy is a non-breaking change — it only improves the guarantee for verifiers.
+   The underlying hardware (SecureTSC) provides sub-millisecond precision,
+   so tightening is straightforward if a use case demands it.
 
 ---
 

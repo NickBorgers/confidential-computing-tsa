@@ -211,7 +211,11 @@ A software layer combines the absolute UTC reference from NTS with the high-reso
 
 ### Layer 4: TriHaRd Cross-Node Validation
 
-Each enclave node periodically broadcasts its current time to all peers. The median of all readings is computed, and any node deviating by more than 100 milliseconds from the median is flagged and excluded from signing. This provides Byzantine fault tolerance at the clock level: even if one node's hardware clock is compromised or faulty, it cannot issue timestamps with incorrect time. See Section 6 for the full TriHaRd protocol.
+Each enclave node periodically broadcasts its current time to all peers.
+The median of all readings is computed, and any node deviating by more than 100 milliseconds from the median
+is flagged and excluded from signing. This provides Byzantine fault tolerance at the clock level:
+even if one node's hardware clock is compromised or faulty, it cannot issue timestamps with incorrect time.
+See Section 6 for the full TriHaRd protocol.
 
 ---
 
@@ -496,13 +500,24 @@ The following table provides a conservative end-to-end precision budget for a CC
 | Software processing | Negligible | Signing, serialization, kernel-to-userspace latency |
 | **Total (conservative)** | **±100ms** | **Dominated by TriHaRd consensus threshold** |
 
-The RFC 3161 `accuracy` field in CC-TSA timestamp tokens is set to **1 second**. This conservative value provides a 10x margin over the TriHaRd consensus threshold, accounts for degraded conditions (e.g., NTS source temporarily unavailable, cross-cloud latency spikes), and reflects that timestamping is not latency-sensitive work. Actual precision under normal operating conditions is significantly better than the stated accuracy.
+The RFC 3161 `accuracy` field in CC-TSA timestamp tokens is set to **1 second**.
+This conservative value provides a 10x margin over the TriHaRd consensus threshold,
+accounts for degraded conditions (e.g., NTS source temporarily unavailable, cross-cloud latency spikes),
+and reflects that timestamping is not latency-sensitive work.
+Actual precision under normal operating conditions is significantly better than the stated accuracy.
 
 ### Precision Considerations
 
-The standard configuration (NTS over the network + SecureTSC + TriHaRd) provides precision that far exceeds the requirements of most timestamping use cases. The 1-second accuracy claim provides generous margin for degraded conditions while the actual precision under normal operation is in the low milliseconds.
+The standard configuration (NTS over the network + SecureTSC + TriHaRd) provides precision
+that far exceeds the requirements of most timestamping use cases.
+The 1-second accuracy claim provides generous margin for degraded conditions
+while the actual precision under normal operation is in the low milliseconds.
 
-If a deployment requires tighter precision guarantees, the TriHaRd deviation threshold and the stated accuracy field can both be tightened via configuration. However, tighter thresholds increase the risk of false positives (nodes excluded due to transient network jitter) without providing meaningful additional value for most timestamping use cases.
+If a deployment requires tighter precision guarantees, the TriHaRd deviation threshold
+and the stated accuracy field can both be tightened via configuration.
+However, tighter thresholds increase the risk of false positives
+(nodes excluded due to transient network jitter)
+without providing meaningful additional value for most timestamping use cases.
 
 See [RFC 3161 Compliance](06-rfc3161-compliance.md) for how the precision budget maps to the token's `accuracy` field.
 

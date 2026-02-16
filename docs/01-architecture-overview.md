@@ -442,7 +442,10 @@ sequenceDiagram
 
 If validation fails, the coordinator returns a `TimeStampResp` with an appropriate error status (e.g., `badAlg`, `badRequest`).
 
-**Phase 3 — Trusted Time Acquisition.** The coordinator obtains a trusted timestamp by reading the hardware TSC via SecureTSC and cross-validating against NTS-authenticated NTP sources using the TriHaRd Byzantine fault-tolerant protocol. If the SecureTSC and TriHaRd times diverge beyond the configured tolerance (default 100 milliseconds), the node halts signing and raises an alert. The validated time is used as `genTime` in the TSTInfo.
+**Phase 3 — Trusted Time Acquisition.** The coordinator obtains a trusted timestamp by reading the hardware TSC via SecureTSC
+and cross-validating against NTS-authenticated NTP sources using the TriHaRd Byzantine fault-tolerant protocol.
+If the SecureTSC and TriHaRd times diverge beyond the configured tolerance (default 100 milliseconds),
+the node halts signing and raises an alert. The validated time is used as `genTime` in the TSTInfo.
 
 See [Confidential Computing & Time](02-confidential-computing-and-time.md) for the TriHaRd protocol specification.
 
@@ -484,7 +487,9 @@ See [RFC 3161 Compliance](06-rfc3161-compliance.md) for the exact CMS encoding o
 
 ### 5.3 Latency Budget
 
-Timestamping is not latency-sensitive work. The system is designed for a **< 1 second end-to-end** round-trip budget, which comfortably accommodates cross-provider network round-trips and threshold signing coordination without requiring latency optimization.
+Timestamping is not latency-sensitive work. The system is designed for a **< 1 second end-to-end** round-trip budget,
+which comfortably accommodates cross-provider network round-trips and threshold signing coordination
+without requiring latency optimization.
 
 | Phase | Expected Latency | Notes |
 |---|---|---|
@@ -588,11 +593,15 @@ graph TB
 **Cross-provider networking:**
 
 The enclave nodes communicate over a cross-provider mesh network for:
+
 - Threshold signing rounds.
 - Periodic time synchronization cross-checks.
 - Health checks and quorum status broadcasts.
 
-The mesh uses mTLS with certificates attested to each node's enclave identity. An optional WireGuard tunnel provides an additional encryption layer. Cross-provider latency (e.g., Azure East US to GCP us-central1) is typically 10–30 ms, which is negligible within the 1-second round-trip budget.
+The mesh uses mTLS with certificates attested to each node's enclave identity.
+An optional WireGuard tunnel provides an additional encryption layer.
+Cross-provider latency (e.g., Azure East US to GCP us-central1) is typically 10–30 ms,
+which is negligible within the 1-second round-trip budget.
 
 ### 6.3 Topology Selection Guidance
 

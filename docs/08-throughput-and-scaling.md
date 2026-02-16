@@ -22,7 +22,11 @@ For the system architecture underpinning this analysis, see [Architecture Overvi
 
 ## 1. Throughput Fundamentals
 
-Timestamp throughput in any TSA is bounded by the **slowest step** in the signing pipeline. CC-TSA is designed for a **< 1 second end-to-end** round-trip budget, reflecting that timestamping is not latency-sensitive work. The actual per-request latency is dominated by threshold signing coordination (network round-trips between enclave nodes) and is typically well below the 1-second budget.
+Timestamp throughput in any TSA is bounded by the **slowest step** in the signing pipeline.
+CC-TSA is designed for a **< 1 second end-to-end** round-trip budget,
+reflecting that timestamping is not latency-sensitive work.
+The actual per-request latency is dominated by threshold signing coordination
+(network round-trips between enclave nodes) and is typically well below the 1-second budget.
 
 The raw cryptographic operations are not the bottleneck:
 
@@ -31,7 +35,9 @@ The raw cryptographic operations are not the bottleneck:
 | ML-DSA-65 signing | ~100,000 ops/sec | Lattice-based, highly parallelizable |
 | ECDSA P-384 signing | ~50,000 ops/sec | Elliptic curve, well-optimized |
 
-The bottleneck is **threshold signing coordination** — the two network round-trips required between the coordinator and 2 participant nodes. This latency varies by deployment topology but is well within the 1-second budget for all configurations:
+The bottleneck is **threshold signing coordination** — the two network round-trips required
+between the coordinator and 2 participant nodes.
+This latency varies by deployment topology but is well within the 1-second budget for all configurations:
 
 | Topology | Round-trip latency | Per-request signing latency (2 rounds) |
 |---|---|---|
@@ -45,7 +51,10 @@ The bottleneck is **threshold signing coordination** — the two network round-t
 
 ### 2.1 Serial Throughput (Single Coordinator, No Pipelining)
 
-If a single coordinator node processes one timestamp request at a time (no concurrency), throughput is simply `1 / per-request latency`. Actual per-request latency is dominated by threshold signing network round-trips, not the 1-second round-trip budget:
+If a single coordinator node processes one timestamp request at a time (no concurrency),
+throughput is simply `1 / per-request latency`.
+Actual per-request latency is dominated by threshold signing network round-trips,
+not the 1-second round-trip budget:
 
 | Deployment | Typical per-request latency | Serial throughput |
 |---|---|---|
@@ -118,7 +127,12 @@ DigiStamp operates HSM-based Timestamp Authorities using IBM 4769 cryptographic 
 | **CC-TSA: 5-node pipelined (multi-provider)** | ~500–1,500 tps | ~15.8–47.3 billion/year |
 | **CC-TSA: 5-node pipelined (single-provider)** | ~1,000–3,000 tps | ~31.5–94.6 billion/year |
 
-The CC-TSA baseline (multi-provider, serial mode) approaches or exceeds DigiStamp's per-HSM throughput. With pipelining enabled, CC-TSA significantly exceeds DigiStamp's capacity because the cryptographic operations run on general-purpose CPUs that are faster for ML-DSA/ECDSA signing than a dedicated HSM is for RSA signing. Note that DigiStamp's HSM-based approach prioritizes certified hardware security (FIPS 140-2 Level 4) and operational simplicity over raw throughput — these are different architectural trade-offs.
+The CC-TSA baseline (multi-provider, serial mode) approaches or exceeds DigiStamp's per-HSM throughput.
+With pipelining enabled, CC-TSA significantly exceeds DigiStamp's capacity
+because the cryptographic operations run on general-purpose CPUs
+that are faster for ML-DSA/ECDSA signing than a dedicated HSM is for RSA signing.
+Note that DigiStamp's HSM-based approach prioritizes certified hardware security (FIPS 140-2 Level 4)
+and operational simplicity over raw throughput — these are different architectural trade-offs.
 
 ### 3.3 Throughput-per-Dollar Comparison
 
