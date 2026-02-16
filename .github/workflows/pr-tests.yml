@@ -160,7 +160,17 @@ jobs:
           restore-keys: cargo-${{ runner.os }}-
 
       - name: Run integration tests
-        run: cargo test --test '*'
+        run: |
+          # Check if there are any integration test files
+          if find cvm/tests wrapper/tests -name "*.rs" 2>/dev/null | grep -q .; then
+            echo "Running integration tests..."
+            cargo test --test '*'
+          else
+            echo "No integration test files found (tests/ directories empty or missing)"
+            echo "Skipping integration tests - consider adding tests in cvm/tests/ or wrapper/tests/"
+            echo "All unit tests are already covered by the unit-tests job"
+            exit 0
+          fi
 
   docker-build:
     name: Docker Build Validation
