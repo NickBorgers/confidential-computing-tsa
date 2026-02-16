@@ -17,6 +17,9 @@ Thumbs.db
 .env
 .env.local
 
+# CI-generated files
+existing-github-actions-issues.json
+
 # Terraform
 .terraform/
 *.tfstate
