@@ -28,9 +28,10 @@ see [Confidential Computing & Time](02-confidential-computing-and-time.md).
 4. [CMS SignedData Structure](#4-cms-signeddata-structure)
 5. [Verification Decision Tree](#5-verification-decision-tree)
 6. [Backward Compatibility](#6-backward-compatibility)
-7. [Accuracy Field](#7-accuracy-field)
-8. [Token Size Analysis](#8-token-size-analysis)
-9. [HTTP Transport](#9-http-transport)
+7. [Client Ecosystem Constraints](#7-client-ecosystem-constraints)
+8. [Accuracy Field](#8-accuracy-field)
+9. [Token Size Analysis](#9-token-size-analysis)
+10. [HTTP Transport](#10-http-transport)
 
 ---
 
@@ -273,7 +274,7 @@ TSTInfo ::= SEQUENCE {
 | `messageImprint` | Copied from request | Hash algorithm OID + hash value, unchanged |
 | `serialNumber` | Monotonically increasing, unique | Per-node counter + node ID to ensure global uniqueness across the cluster |
 | `genTime` | UTC from SecureTSC + NTS | GeneralizedTime with fractional seconds (e.g., `20260213120000.000Z`) |
-| `accuracy` | `{seconds: 1, millis: 0, micros: 0}` | 1 second conservative; timestamping is not latency-sensitive work (see [Section 7](#7-accuracy-field)) |
+| `accuracy` | `{seconds: 1, millis: 0, micros: 0}` | 1 second conservative; timestamping is not latency-sensitive work (see [Section 8](#8-accuracy-field)) |
 | `ordering` | FALSE | CC-TSA does not guarantee total ordering across all tokens |
 | `nonce` | Copied from request (if present) | Echoed for replay protection; absent if not in request |
 | `tsa` | CC-TSA GeneralName | DirectoryName with the TSA's distinguished name from the certificate |
@@ -661,7 +662,7 @@ CC-TSA tokens are verified by these libraries without any patches or configurati
 
 5. **Token is slightly larger**: The ML-DSA-65 signature (~3.3 KB) and ML-DSA certificate (~3.5 KB) add approximately 6.8 KB to the token.
 This does not affect ASN.1 parsing or CMS processing -- it simply means more bytes are read and skipped.
-See [Section 8](#8-token-size-analysis) for a detailed size breakdown.
+See [Section 9](#9-token-size-analysis) for a detailed size breakdown.
 
 ### PQC-Aware Verifiers
 
@@ -727,7 +728,39 @@ No retroactive action is needed for the CC-TSA's timestamps to remain verifiable
 
 ---
 
-## 7. Accuracy Field
+## 7. Client Ecosystem Constraints
+
+Standard RFC 3161 clients and PDF signing tools are designed around a single TSA endpoint,
+which has direct implications for multi-provider assurance strategies.
+
+### Single-Token Multi-Provider Assurance
+
+The RFC 3161 protocol is single-request/single-response:
+a client sends one `TimeStampReq` to one TSA URL and receives one `TimeStampResp`.
+No standard client implementation queries multiple TSAs for the same data
+or bundles multiple tokens together.
+PDF signing libraries (PAdES, Adobe Acrobat, iText, PDFBox, Adobe SDK)
+configure a single TSA URL per document signature.
+While the PDF specification supports multiple document timestamps,
+this mechanism is designed for temporal layering
+(adding timestamps over time for long-term archival validation under PAdES-LTV),
+not for concurrent multi-provider coverage.
+
+The CC-TSA cross-provider threshold design takes advantage of this reality:
+because the 3-of-5 threshold signing cluster is distributed
+across multiple cloud providers (2+2+1),
+every token inherently carries multi-provider assurance
+without requiring any client-side changes.
+A standard RFC 3161 client points at the CC-TSA endpoint, receives a single token,
+and that token is guaranteed to have been co-signed by nodes spanning multiple providers.
+
+For the full design rationale — including the rejected multi-TSA alternative,
+the TSA aggregation proxy consideration, and why the cross-provider threshold approach
+was chosen — see [Architecture Overview — Alternative Considered: Multiple Independent Single-Provider TSAs](01-architecture-overview.md#64-alternative-considered-multiple-independent-single-provider-tsas).
+
+---
+
+## 8. Accuracy Field
 
 ### RFC 3161 Accuracy Definition
 
@@ -813,7 +846,7 @@ The 1-second accuracy field provides approximately a 10x safety margin over the 
 
 ---
 
-## 8. Token Size Analysis
+## 9. Token Size Analysis
 
 ### Component Breakdown
 
@@ -880,7 +913,7 @@ This reduces the total to approximately **5.1 KB** with both certificates omitte
 
 ---
 
-## 9. HTTP Transport
+## 10. HTTP Transport
 
 CC-TSA implements the HTTP transport protocol defined in RFC 3161 Section 3.4, with additional security requirements and operational endpoints.
 

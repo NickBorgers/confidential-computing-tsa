@@ -660,6 +660,80 @@ which is negligible within the 1-second round-trip budget.
 
 For production deployments handling high-value timestamps, the multi-provider topology is recommended.
 
+### 6.4 Alternative Considered: Multiple Independent Single-Provider TSAs
+
+During design review, an alternative multi-cloud approach was considered:
+instead of one cross-provider TSA cluster (2+2+1 across providers),
+deploy multiple independent single-provider TSAs,
+each running a full 5-node threshold cluster entirely within one cloud provider.
+Multi-cloud assurance would come from having separate TSAs in separate providers,
+rather than from distributing a single TSA's nodes across providers.
+
+**Advantages of the alternative:**
+
+- Simpler networking: no cross-provider mesh required. All threshold signing traffic stays within a single provider's network.
+- Lower signing latency: intra-provider round-trips for threshold signing are consistently low.
+- Independent failure domains: each TSA cluster can be operated, upgraded, and recovered independently.
+- Simpler per-TSA operations: DKG ceremonies, monitoring, and incident response are scoped to a single provider.
+- Independent certificate chains: each single-provider TSA could have its own certificate chain, which some compliance frameworks might prefer for organizational or jurisdictional separation.
+
+**Why it was rejected:**
+
+1. **Single-token multi-provider assurance is lost.**
+In the cross-provider threshold design, every token inherently proves
+that nodes across multiple providers participated in signing.
+In the multi-TSA alternative, each token only proves single-provider integrity.
+Multi-provider assurance would require clients to collect and retain tokens
+from multiple independent TSAs — a fundamentally different trust model.
+
+2. **RFC 3161 clients do not support multiple TSAs.**
+The RFC 3161 protocol is single-request/single-response:
+a client sends one `TimeStampReq` and receives one `TimeStampResp`.
+No standard client implementation queries multiple TSAs for the same data
+or bundles multiple tokens together.
+Adding multi-TSA logic would require custom client code
+that no existing RFC 3161 library provides.
+
+3. **PDF signing tooling assumes one TSA.**
+PAdES (PDF Advanced Electronic Signatures), Adobe Acrobat,
+and standard PDF signing libraries (e.g., iText, PDFBox, Adobe SDK)
+configure a single TSA URL per document signature.
+While the PDF specification supports multiple document timestamps,
+this mechanism is designed for temporal layering
+(adding timestamps over time for long-term archival validation under PAdES-LTV),
+not for concurrent multi-provider coverage.
+There is no standard workflow for attaching timestamps from multiple TSAs
+to a single signature for provider-diversity purposes.
+
+4. **Burden shifts to relying parties.**
+Every consumer of timestamps would need custom logic to:
+(a) request timestamps from multiple TSAs,
+(b) store and manage multiple tokens per timestamped artifact, and
+(c) reason about cross-provider coverage when verifying.
+This is a non-standard workflow that no existing verification tool supports.
+
+5. **A TSA aggregation proxy does not resolve the fundamental issue.**
+One might consider a gateway that internally fans out to multiple single-provider TSAs
+and returns one token to the client.
+However, such a proxy would need to either (a) select one provider's token to return —
+losing multi-provider assurance in the token itself — or (b) bundle multiple tokens,
+which still requires clients to understand and verify the bundle format.
+RFC 3161 defines one `TimeStampResp` per `TimeStampReq`;
+there is no standard envelope for a multi-TSA token bundle.
+The cross-provider threshold approach avoids this problem entirely
+because the single token is genuinely co-signed by nodes across providers.
+
+**Conclusion:** The cross-provider threshold design gives every standard RFC 3161 client
+multi-provider assurance in a single token with zero client-side changes.
+A client points at one TSA URL, receives one token,
+and that token inherently carries the guarantee
+that nodes across multiple cloud providers participated in its creation.
+This is strictly more practical than the multi-TSA alternative
+requiring client-side multi-TSA coordination.
+
+See also [RFC 3161 Compliance — Client Ecosystem Constraints](06-rfc3161-compliance.md#7-client-ecosystem-constraints)
+for how standard RFC 3161 clients and PDF signing tools reinforce this design choice.
+
 ---
 
 ## 7. Minimum Nodes for Operation
