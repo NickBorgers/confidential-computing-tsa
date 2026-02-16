@@ -136,7 +136,7 @@ Importantly, this research does **not** demonstrate any ability to manipulate Se
 — the paper's authors explicitly confirm that SecureTSC is resilient to modification attempts
 and remains a trustworthy time source.
 The co-location detection is a privacy/metadata leakage concern, not a time integrity concern.
-The proposed mitigation (hypervisors using randomized `DESIRED_TSC_FREQUENCY` values per guest)
+The proposed mitigation (hypervisors using randomized `DESIRED_TSC_FREQ` values per guest)
 can be deployed at the cloud provider level without changes to AMD silicon.
 
 For CC-TSA, the co-location risk is addressed by the multi-provider deployment model:

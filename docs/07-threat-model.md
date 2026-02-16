@@ -438,7 +438,7 @@ and AMD's track record of responsive patching.
 | CacheWarp | 2023 | CVE-2023-20592 | Medium (5.3) | Yes | Fault injection (cache) | Patched (microcode) |
 | Firmware vulns | 2024 | — | Medium | Yes | Firmware logic errors | Patched (AMD-SB-3007) |
 | RMP init race | 2024 | — | High | Yes | Race condition in RMP | Patched (AMD-SB-3020) |
-| TsCupid | 2024 | — | Low | Yes (SecureTSC) | Co-location detection | Disclosed; mitigation proposed |
+| TsCupid | 2025 | — | Low | Yes (SecureTSC) | Co-location detection | Disclosed; mitigation proposed |
 | Microcode bypass | 2025 | CVE-2024-56161 | High (7.2) | Yes | Hash flaw in verification | Patched (microcode) |
 | CounterSEVeillance | 2025 | — | Medium | Yes | Perf counter side-channel | Ongoing research |
 | Heracles | 2025 | — | Medium | Yes | Chosen plaintext attack | Mitigated on Zen 5 |
@@ -478,7 +478,7 @@ not an attack in itself. For CC-TSA, the implications are:
    in a more complex attack (e.g., a cache side-channel attack against the enclave).
    The subsequent steps face the full set of SEV-SNP protections.
 3. **Mitigation**: The paper proposes that hypervisors use randomly generated
-   `DESIRED_TSC_FREQUENCY` values per guest,
+   `DESIRED_TSC_FREQ` values per guest,
    which would eliminate the co-location signal.
    This is a hypervisor-level change that cloud providers can deploy
    independently of AMD silicon changes.
