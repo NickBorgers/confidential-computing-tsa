@@ -73,7 +73,15 @@ jobs:
         run: cargo test --lib --bins
 
       - name: Run integration tests
-        run: cargo test --test '*'
+        run: |
+          # Check if there are any integration test files
+          if find cvm/tests wrapper/tests -name "*.rs" 2>/dev/null | grep -q .; then
+            echo "Running integration tests..."
+            cargo test --test '*'
+          else
+            echo "No integration test files found, skipping integration tests"
+            exit 0
+          fi
 
   build-and-push:
     name: Build and Push Docker Image
