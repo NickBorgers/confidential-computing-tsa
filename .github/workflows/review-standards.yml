@@ -1,0 +1,223 @@
+name: "Review: RFC Compliance & Standards"
+
+# Reusable workflow - validates RFC 3161, NIST SP 800-208 (PQC), AMD SEV-SNP spec compliance
+# Called by claude-code-review.yml orchestrator
+
+on:
+  workflow_call:
+    inputs:
+      pr_number:
+        required: true
+        type: string
+      pr_title:
+        required: true
+        type: string
+      pr_body_b64:
+        required: true
+        type: string
+      head_ref:
+        required: true
+        type: string
+      head_repo:
+        required: true
+        type: string
+      issue_number:
+        required: true
+        type: string
+      issue_title:
+        required: true
+        type: string
+      issue_body_b64:
+        required: true
+        type: string
+      devcontainer_image:
+        required: true
+        type: string
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
+      WORKFLOW_PAT:
+        required: true
+
+jobs:
+  standards-review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+      packages: read
+
+    steps:
+      - name: Verify tests passed on current commit
+        id: verify-tests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/${{ inputs.pr_number }} --jq '.head.sha')
+          echo "Checking test status for commit $HEAD_SHA"
+
+          MAX_ATTEMPTS=40
+          ATTEMPT=1
+          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+            STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs --jq '[.check_runs[] | select(.name == "All Required Tests")] | sort_by(.completed_at) | last | .conclusion' 2>/dev/null || echo "")
+
+            if [ "$STATUS" = "success" ]; then
+              echo "All Required Tests passed on current commit"
+              echo "verified=true" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+
+            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+              echo "Attempt $ATTEMPT/$MAX_ATTEMPTS: Check run not found yet (status: ${STATUS:-not found}), waiting 10s..."
+              sleep 10
+            fi
+            ATTEMPT=$((ATTEMPT + 1))
+          done
+
+          echo "Tests have not passed on current commit after $MAX_ATTEMPTS attempts"
+          echo "verified=false" >> $GITHUB_OUTPUT
+
+      - name: Checkout PR branch
+        if: steps.verify-tests.outputs.verified == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.head_ref }}
+          repository: ${{ inputs.head_repo }}
+          fetch-depth: 0
+
+      - name: Pull latest changes
+        if: steps.verify-tests.outputs.verified == 'true'
+        run: git pull origin ${{ inputs.head_ref }} || true
+
+      - name: Create gh config directory for devcontainer mount
+        if: steps.verify-tests.outputs.verified == 'true'
+        run: mkdir -p ~/.config/gh
+
+      - name: Log in to GHCR
+        if: steps.verify-tests.outputs.verified == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Standards compliance review in devcontainer
+        if: steps.verify-tests.outputs.verified == 'true'
+        uses: devcontainers/ci@v0.3
+        with:
+          imageName: ${{ inputs.devcontainer_image }}
+          cacheFrom: ${{ inputs.devcontainer_image }}
+          push: never
+          env: |
+            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+            GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
+            PR_NUMBER=${{ inputs.pr_number }}
+            PR_TITLE=${{ inputs.pr_title }}
+            PR_BODY_B64=${{ inputs.pr_body_b64 }}
+            ISSUE_NUMBER=${{ inputs.issue_number }}
+            ISSUE_TITLE=${{ inputs.issue_title }}
+            ISSUE_BODY_B64=${{ inputs.issue_body_b64 }}
+            HEAD_REF=${{ inputs.head_ref }}
+            REPO=${{ github.repository }}
+          runCmd: |
+            PR_BODY=$(echo "$PR_BODY_B64" | base64 -d 2>/dev/null || echo "")
+            ISSUE_BODY=$(echo "$ISSUE_BODY_B64" | base64 -d 2>/dev/null || echo "")
+
+            claude --print \
+              --verbose \
+              --output-format stream-json \
+              --model opus \
+              --dangerously-skip-permissions \
+              --max-turns 450 \
+              "You are an RFC COMPLIANCE & STANDARDS REVIEW specialist for PR #${PR_NUMBER} in ${REPO}.
+
+            Your role is to evaluate whether this PR's changes comply with the relevant standards
+            and specifications that govern this quantum-safe Timestamp Authority system.
+
+            Do NOT modify any code or push any changes. This is a read-only review.
+
+            **CRITICAL: Only report issues that require action from the PR author.**
+            Do NOT provide general standards education. Do NOT praise compliant sections.
+            If there are no actionable issues, post a short approval and move on.
+
+            **QUICK CHECK:** If this PR is purely infrastructure, CI/CD, devcontainer, or workflow
+            configuration with no changes to protocol designs, compliance claims, or standards
+            references, post:
+            'Approved - No standards-relevant changes to evaluate.'
+            and stop.
+
+            **CONTEXT:**
+            PR Title: ${PR_TITLE}
+            PR Description:
+            ${PR_BODY}
+
+            Linked Issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}
+            Issue Description:
+            ${ISSUE_BODY}
+
+            **YOUR TASK:**
+
+            1. Read the code changes: \`git diff origin/main...HEAD\`
+            2. Read project documentation for context:
+               - docs/06-rfc3161-compliance.md (RFC 3161 Timestamp Protocol compliance)
+               - docs/03-quantum-safe-threshold-crypto.md (NIST PQC algorithm choices)
+               - docs/02-confidential-computing-and-time.md (AMD SEV-SNP attestation)
+               - docs/01-architecture-overview.md (system architecture)
+               - docs/07-threat-model.md (security model)
+            3. Evaluate the changes against the standards below
+
+            **STANDARDS TO CHECK (only assess standards relevant to this PR):**
+
+            1. **RFC 3161 - Internet X.509 PKI Time-Stamp Protocol**
+               - TimeStampReq and TimeStampResp message format compliance
+               - Mandatory fields (version, messageImprint, nonce handling)
+               - TSA policy OID requirements
+               - Error handling (PKIStatusInfo values)
+               - Ordering and accuracy guarantees
+
+            2. **NIST SP 800-208 - Recommendation for Stateful Hash-Based Signature Schemes**
+               - Correct algorithm parameter selections (ML-DSA levels, XMSS/LMS tree heights)
+               - Key lifecycle management requirements
+               - State management for stateful signatures (if used)
+               - Hybrid signature scheme construction validity
+
+            3. **AMD SEV-SNP Specification**
+               - Attestation report format and verification flow
+               - Guest policy and platform info requirements
+               - VCEK certificate chain validation
+               - Launch measurement and identity block usage
+
+            4. **General Cryptographic Standards**
+               - FIPS 140-3 module boundary requirements (if claimed)
+               - X.509 certificate profile compliance
+               - ASN.1 encoding correctness (DER vs BER requirements)
+
+            **SEVERITY GUIDELINES:**
+            - **Blocking**: Standards violations that would make the system non-compliant
+              (e.g., missing mandatory RFC 3161 fields, incorrect algorithm parameters)
+            - **Non-blocking suggestion**: Improvements that would strengthen compliance but
+              aren't strict violations
+            - **Note**: Standards-related observations worth considering
+
+            Post exactly ONE comment using:
+            gh pr comment ${PR_NUMBER} --body '## RFC Compliance & Standards Review
+
+            [If no standards-relevant changes: \"Approved - No standards-relevant changes to evaluate.\" and stop]
+
+            [If no issues: \"Approved - Changes comply with applicable standards.\" and stop]
+
+            ### Standards Evaluation
+            [Only list actionable compliance concerns, organized by standard. Cite specific RFC sections or spec clauses. Skip standards with no issues.]
+
+            ### Conclusion
+            [Approved | Approved with suggestions | Blocking compliance issues found]'" < /dev/null 2>&1 | tee /workspaces/confidential-computing-tsa/standards-review-output.jsonl
+
+      - name: Upload standards review output
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: standards-review-output
+          path: standards-review-output.jsonl
+          retention-days: 7

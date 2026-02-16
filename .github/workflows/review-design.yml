@@ -1,0 +1,224 @@
+name: "Review: Design"
+
+# Reusable workflow - validates PR implements issue intent and reviews design quality
+# Called by claude-code-review.yml orchestrator
+
+on:
+  workflow_call:
+    inputs:
+      pr_number:
+        required: true
+        type: string
+      pr_title:
+        required: true
+        type: string
+      pr_body_b64:
+        required: true
+        type: string
+      head_ref:
+        required: true
+        type: string
+      head_repo:
+        required: true
+        type: string
+      issue_number:
+        required: true
+        type: string
+      issue_title:
+        required: true
+        type: string
+      issue_body_b64:
+        required: true
+        type: string
+      devcontainer_image:
+        required: true
+        type: string
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
+      WORKFLOW_PAT:
+        required: true
+
+jobs:
+  design-review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      packages: read
+
+    steps:
+      - name: Verify tests passed on current commit
+        id: verify-tests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/${{ inputs.pr_number }} --jq '.head.sha')
+          echo "Checking test status for commit $HEAD_SHA"
+
+          MAX_ATTEMPTS=40
+          ATTEMPT=1
+          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+            STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs --jq '[.check_runs[] | select(.name == "All Required Tests")] | sort_by(.completed_at) | last | .conclusion' 2>/dev/null || echo "")
+
+            if [ "$STATUS" = "success" ]; then
+              echo "All Required Tests passed on current commit"
+              echo "verified=true" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+
+            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+              echo "Attempt $ATTEMPT/$MAX_ATTEMPTS: Check run not found yet (status: ${STATUS:-not found}), waiting 10s..."
+              sleep 10
+            fi
+            ATTEMPT=$((ATTEMPT + 1))
+          done
+
+          echo "Tests have not passed on current commit after $MAX_ATTEMPTS attempts"
+          echo "verified=false" >> $GITHUB_OUTPUT
+
+      - name: Checkout PR branch
+        if: steps.verify-tests.outputs.verified == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.head_ref }}
+          repository: ${{ inputs.head_repo }}
+          fetch-depth: 0
+          token: ${{ secrets.WORKFLOW_PAT }}
+
+      - name: Pull latest changes
+        if: steps.verify-tests.outputs.verified == 'true'
+        run: git pull origin ${{ inputs.head_ref }} || true
+
+      - name: Create gh config directory for devcontainer mount
+        if: steps.verify-tests.outputs.verified == 'true'
+        run: mkdir -p ~/.config/gh
+
+      - name: Log in to GHCR
+        if: steps.verify-tests.outputs.verified == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Design review in devcontainer
+        if: steps.verify-tests.outputs.verified == 'true'
+        uses: devcontainers/ci@v0.3
+        with:
+          imageName: ${{ inputs.devcontainer_image }}
+          cacheFrom: ${{ inputs.devcontainer_image }}
+          push: never
+          env: |
+            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+            GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
+            PR_NUMBER=${{ inputs.pr_number }}
+            PR_TITLE=${{ inputs.pr_title }}
+            PR_BODY_B64=${{ inputs.pr_body_b64 }}
+            ISSUE_NUMBER=${{ inputs.issue_number }}
+            ISSUE_TITLE=${{ inputs.issue_title }}
+            ISSUE_BODY_B64=${{ inputs.issue_body_b64 }}
+            HEAD_REF=${{ inputs.head_ref }}
+            REPO=${{ github.repository }}
+          runCmd: |
+            PR_BODY=$(echo "$PR_BODY_B64" | base64 -d 2>/dev/null || echo "")
+            ISSUE_BODY=$(echo "$ISSUE_BODY_B64" | base64 -d 2>/dev/null || echo "")
+
+            ISSUE_COMMENTS=""
+            if [ -n "$ISSUE_NUMBER" ]; then
+              ISSUE_COMMENTS=$(gh api "repos/${REPO}/issues/${ISSUE_NUMBER}/comments" --jq '.[] | "---\n**\(.user.login)** commented at \(.created_at):\n\(.body)\n"' 2>/dev/null | head -c 50000 || echo "")
+            fi
+
+            claude --print \
+              --verbose \
+              --output-format stream-json \
+              --model opus \
+              --dangerously-skip-permissions \
+              --max-turns 450 \
+              "You are a DESIGN REVIEW specialist for PR #${PR_NUMBER} in ${REPO}.
+
+            Your role is to validate that this PR correctly implements the intent described in the
+            linked issue and/or PR description, AND to critically review the design decisions made.
+
+            **CONTEXT:**
+            PR Title: ${PR_TITLE}
+            PR Description:
+            ${PR_BODY}
+
+            Linked Issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}
+            Issue Description:
+            ${ISSUE_BODY}
+
+            Issue Comments (additional context/requirements):
+            ${ISSUE_COMMENTS}
+
+            **YOUR TASK:**
+
+            1. **Understand the Intent**: Read the issue and PR description carefully to understand
+               what problem is being solved and what the expected outcome should be.
+
+            2. **Review the Implementation**: Examine the code changes (\`git diff origin/main...HEAD\`)
+               to understand what was actually implemented.
+
+            3. **Validate Intent Fulfillment**: Does this PR actually solve the problem described?
+               Are there gaps between what was requested and what was delivered?
+
+            4. **Critical Design Review**: Evaluate the design decisions:
+               - Is this a good design for solving the problem?
+               - Are there predictable challenges or edge cases not addressed?
+               - What trade-offs does this design bring?
+               - Are there simpler or more robust alternatives?
+               - Does this design fit well with the existing architecture?
+               - Will this design scale or be maintainable?
+
+            5. **For Design-Heavy PRs** (PRs that introduce new patterns, architectures, or significant
+               structural changes): Be especially thorough in your design critique. Consider:
+               - Extensibility and flexibility
+               - Error handling and failure modes
+               - Performance implications
+               - Coupling and cohesion
+               - Testability
+
+            **IMPORTANT RULES:**
+            - Reference docs/01-architecture-overview.md for system design context
+            - If the PR doesn't clearly address the issue, this is a blocking concern
+            - Design flaws that could cause production issues are blocking
+            - Minor design suggestions are non-blocking but should be noted
+
+            BEFORE PUSHING: rebase with \`git pull --rebase origin ${HEAD_REF}\`
+
+            Post exactly ONE comment using:
+            gh pr comment ${PR_NUMBER} --body '## Design Review
+
+            ### Intent Validation
+            [Does this PR fulfill the intent of the issue/description?]
+            - Fully addresses the stated requirements, OR
+            - Partially addresses (explain gaps), OR
+            - Does not address the core issue (explain why)
+
+            ### Design Analysis
+            [Your critical review of the design decisions]
+
+            **Strengths:**
+            [What the design does well - be specific]
+
+            **Concerns:**
+            [Potential issues, edge cases, trade-offs - be specific]
+
+            **Suggestions:**
+            [Alternative approaches or improvements to consider]
+
+            ### Conclusion
+            [Approved - Design is sound and fulfills intent |
+             Approved with reservations - Minor design concerns noted |
+             Needs revision - Significant design issues or intent mismatch]'" < /dev/null 2>&1 | tee /workspaces/confidential-computing-tsa/design-review-output.jsonl
+
+      - name: Upload design review output
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: design-review-output
+          path: design-review-output.jsonl
+          retention-days: 7
