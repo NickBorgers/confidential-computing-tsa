@@ -1,0 +1,179 @@
+name: "Weekly Review: External Reviewability & Trust Model"
+
+# Whole-codebase external reviewability review - examines the entire codebase on
+# main for subtle trust model erosion that incremental PR reviews might miss.
+# Individual PRs may each look fine while their cumulative effect weakens
+# architectural invariants. Creates GitHub issues for genuine findings.
+#
+# Called by weekly-reviews.yml orchestrator
+
+on:
+  workflow_call:
+    inputs:
+      devcontainer_image:
+        required: true
+        type: string
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
+
+jobs:
+  weekly-standards-review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      packages: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create gh config directory for devcontainer mount
+        run: mkdir -p ~/.config/gh
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Whole-codebase standards review in devcontainer
+        uses: devcontainers/ci@v0.3
+        with:
+          imageName: ${{ inputs.devcontainer_image }}
+          cacheFrom: ${{ inputs.devcontainer_image }}
+          push: never
+          env: |
+            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+            GH_TOKEN=${{ github.token }}
+            REPO=${{ github.repository }}
+          runCmd: |
+            claude --print \
+              --verbose \
+              --output-format stream-json \
+              --model opus \
+              --dangerously-skip-permissions \
+              --max-turns 150 \
+              "You are an EXTERNAL REVIEWABILITY & TRUST MODEL reviewer performing a weekly whole-codebase
+            review of ${REPO}.
+
+            This is NOT a PR review. You are examining the entire codebase on main to find subtle trust
+            model erosion that incremental PR reviews might miss. Individual PRs may each look acceptable
+            while their cumulative effect weakens the architectural invariants.
+
+            Do NOT modify any code or push any changes. This is a read-only review.
+
+            **YOUR TASK:**
+
+            1. Read all project documentation:
+               - docs/07-threat-model.md (trust assumptions and adversary model)
+               - docs/01-architecture-overview.md (system architecture, immutability model)
+               - docs/03-quantum-safe-threshold-crypto.md (key lifecycle, DKG)
+               - docs/04-failure-modes-and-recovery.md (recovery procedures)
+               - docs/05-operations-and-deployment.md (deployment and update procedures)
+               - docs/02-confidential-computing-and-time.md (TEE and time)
+
+            2. Read all code, with focus on trust model, attestation, key management, and
+               deployment procedures.
+
+            3. Read .github/issues/ for background on the trust model correction history.
+
+            4. Evaluate the entire codebase holistically against the 6 architectural invariants below.
+
+            **INVARIANTS TO CHECK:**
+
+            1. **No organizational process trust for security**
+               Does any part of the codebase introduce a step where security depends on an operator
+               following a correct procedure? Examples: operator must update a policy for security,
+               operator must verify a measurement, operator must revoke something manually.
+               The test: if the operator is malicious or negligent, does the security property still hold?
+
+            2. **Attestation measurement binding**
+               Is the binding between attestation measurement and TSA certificate consistent and
+               unbroken across all documents and code? The measurement must be fixed at DKG time,
+               published alongside the certificate, and independently verifiable. Any path that allows
+               measurement to change without key rotation is a finding.
+
+            3. **Key material ephemerality**
+               Is there any persistence of key shares outside enclave memory anywhere in the codebase?
+               Key shares must exist only in hardware-encrypted enclave memory. Any KMS-based key
+               wrapping, sealed storage, or other persistence mechanisms are findings.
+
+            4. **External verifiability**
+               Can a relying party independently verify every security property claimed? Look for
+               'trust us' claims that cannot be independently checked. Verify the attestation
+               measurement, certificate binding, and reproducible build claims are all externally
+               verifiable.
+
+            5. **Structural prevention vs. detection**
+               Are any threats described as 'detected' or 'mitigated by monitoring' when they should
+               be 'structurally prevented'? Detection means someone must notice and respond; structural
+               prevention means the attack cannot succeed regardless of whether anyone is watching.
+
+            6. **Software immutability during key lifetime**
+               Is there any mechanism for changing running software without triggering key rotation?
+               Rolling updates, hot-patching, in-place upgrades, or any mechanism that allows the
+               binary to change while the same signing key remains active is a finding.
+
+            **BEFORE CREATING ANY ISSUES:**
+            Check for existing open issues with the weekly-standards-review label:
+            \`gh issue list --label weekly-standards-review --state open --json number,title\`
+
+            Review existing issues to:
+            - Avoid creating duplicate issues for already-known problems
+            - Provide context on what has already been identified
+
+            **CRITICAL: VERY STRONG BIAS TOWARD NO ACTION.**
+            Only create issues for genuine trust model violations or erosion. Do NOT create issues for:
+            - Documentation that could be 'slightly clearer' but is not wrong
+            - Theoretical concerns without concrete evidence in the codebase
+            - Things that would be nice to improve but don't affect the trust model
+            - Issues already covered by the PR-level standards review
+
+            **IF NO ISSUES FOUND (expected most of the time):**
+            Output: 'Weekly standards review complete. All 6 architectural invariants are maintained in the current codebase.'
+            Then exit. Do NOT create any issues.
+
+            **IF GENUINE TRUST MODEL EROSION FOUND:**
+            1. First, ensure the label exists:
+               gh label create \"weekly-standards-review\" --color \"fbca04\" --description \"Weekly whole-codebase trust model and external reviewability findings\" 2>/dev/null || true
+            2. For each genuine finding, create a GitHub issue:
+               gh issue create \\
+                 --title \"Trust Model: <brief description>\" \\
+                 --label \"weekly-standards-review\" \\
+                 --body \"\$(cat <<'ISSUE_BODY'
+            ## Trust Model Finding
+
+            ### Invariant Affected
+            [Which of the 6 invariants is violated or eroded]
+
+            ### Description
+            [What was found and why it constitutes trust model erosion]
+
+            ### Evidence
+            [Specific files, lines, and quotes showing the issue. Show how the cumulative state of the codebase violates the invariant, even if individual changes were each acceptable.]
+
+            ### Impact
+            [What attack or trust assumption failure this enables]
+
+            ### Suggested Resolution
+            [What should change to restore the invariant]
+
+            ---
+            Generated by Weekly Standards Review
+            ISSUE_BODY
+            )\"
+
+            Remember: When in doubt, do NOT create an issue. False positives erode trust." < /dev/null 2>&1 | tee /workspaces/confidential-computing-tsa/weekly-standards-review-output.jsonl
+
+      - name: Upload weekly standards review output
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: weekly-standards-review-output
+          path: weekly-standards-review-output.jsonl
+          retention-days: 7

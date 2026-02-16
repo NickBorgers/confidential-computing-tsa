@@ -1,0 +1,145 @@
+name: "Weekly Review: Cryptographic Consistency"
+
+# Whole-codebase cryptographic review - examines all crypto-relevant code and
+# documentation on main for accumulated inconsistencies that incremental PR
+# reviews might miss. Creates GitHub issues for genuine findings.
+#
+# Called by weekly-reviews.yml orchestrator
+
+on:
+  workflow_call:
+    inputs:
+      devcontainer_image:
+        required: true
+        type: string
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
+
+jobs:
+  weekly-crypto-review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      packages: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create gh config directory for devcontainer mount
+        run: mkdir -p ~/.config/gh
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Whole-codebase crypto review in devcontainer
+        uses: devcontainers/ci@v0.3
+        with:
+          imageName: ${{ inputs.devcontainer_image }}
+          cacheFrom: ${{ inputs.devcontainer_image }}
+          push: never
+          env: |
+            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+            GH_TOKEN=${{ github.token }}
+            REPO=${{ github.repository }}
+          runCmd: |
+            claude --print \
+              --verbose \
+              --output-format stream-json \
+              --model opus \
+              --dangerously-skip-permissions \
+              --max-turns 150 \
+              "You are a CRYPTOGRAPHIC CONSISTENCY REVIEWER performing a weekly whole-codebase review of ${REPO}.
+
+            This is NOT a PR review. You are examining the entire codebase on main to find accumulated
+            cryptographic inconsistencies that incremental PR reviews might miss.
+
+            Do NOT modify any code or push any changes. This is a read-only review.
+
+            **YOUR TASK:**
+
+            1. Read all crypto-relevant documentation:
+               - docs/03-quantum-safe-threshold-crypto.md (threshold cryptography design)
+               - docs/06-rfc3161-compliance.md (RFC 3161 compliance details)
+               - docs/07-threat-model.md (security threat model)
+               - docs/01-architecture-overview.md (system architecture)
+
+            2. Read all Rust source code:
+               Find and read all .rs files in the repository.
+
+            3. Cross-reference all documents and code against each other for consistency.
+
+            **CHECK FOR:**
+            - Incorrect or unsupported cryptographic claims (e.g., wrong security levels, invalid parameter choices)
+            - Threshold parameter inconsistencies across documents (t-of-n values must be consistent everywhere)
+            - Protocol specification errors (key generation, signing, verification flows)
+            - Post-quantum algorithm misuse (ML-DSA/CRYSTALS-Dilithium parameter levels, hash-based signatures)
+            - Key management lifecycle issues (generation, distribution, rotation, revocation)
+            - Timing side-channel risks in cryptographic operations
+            - Claims in one document that contradict the threat model or another document
+            - Crypto parameters in code that don't match what documentation specifies
+            - Security level claims that are inconsistent between documents
+
+            **BEFORE CREATING ANY ISSUES:**
+            Check for existing open issues with the weekly-crypto-review label:
+            \`gh issue list --label weekly-crypto-review --state open --json number,title\`
+
+            Review existing issues to:
+            - Avoid creating duplicate issues for already-known problems
+            - Provide context on what has already been identified
+
+            **CRITICAL: VERY STRONG BIAS TOWARD NO ACTION.**
+            Only create issues for genuine cryptographic inconsistencies or errors. Do NOT create issues for:
+            - Stylistic preferences in documentation
+            - Minor wording differences that don't affect correctness
+            - Theoretical concerns without concrete inconsistency evidence
+            - Things that are 'nice to have' but not wrong
+
+            **IF NO ISSUES FOUND (expected most of the time):**
+            Output: 'Weekly crypto review complete. No inconsistencies found in the current codebase.'
+            Then exit. Do NOT create any issues.
+
+            **IF GENUINE INCONSISTENCIES FOUND:**
+            1. First, ensure the label exists:
+               gh label create \"weekly-crypto-review\" --color \"d93f0b\" --description \"Weekly whole-codebase crypto consistency review findings\" 2>/dev/null || true
+            2. For each genuine finding, create a GitHub issue:
+               gh issue create \\
+                 --title \"Crypto Consistency: <brief description>\" \\
+                 --label \"weekly-crypto-review\" \\
+                 --body \"\$(cat <<'ISSUE_BODY'
+            ## Cryptographic Consistency Finding
+
+            ### Description
+            [What inconsistency or error was found]
+
+            ### Evidence
+            [Specific files, lines, and quotes showing the inconsistency. Reference at least two sources that contradict each other.]
+
+            ### Impact
+            [What could go wrong if this inconsistency is not resolved]
+
+            ### Suggested Resolution
+            [Which source is correct, and what should change]
+
+            ---
+            Generated by Weekly Crypto Review
+            ISSUE_BODY
+            )\"
+
+            Remember: When in doubt, do NOT create an issue. False positives erode trust." < /dev/null 2>&1 | tee /workspaces/confidential-computing-tsa/weekly-crypto-review-output.jsonl
+
+      - name: Upload weekly crypto review output
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: weekly-crypto-review-output
+          path: weekly-crypto-review-output.jsonl
+          retention-days: 7
