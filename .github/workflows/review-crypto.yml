@@ -1,0 +1,166 @@
+name: "Review: Cryptographic Design"
+
+# Reusable workflow - validates crypto claims, threshold parameters, protocol specs
+# Called by claude-code-review.yml orchestrator
+
+on:
+  workflow_call:
+    inputs:
+      pr_number:
+        required: true
+        type: string
+      head_ref:
+        required: true
+        type: string
+      head_repo:
+        required: true
+        type: string
+      devcontainer_image:
+        required: true
+        type: string
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
+      WORKFLOW_PAT:
+        required: true
+
+jobs:
+  crypto-review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      packages: read
+
+    steps:
+      - name: Verify tests passed on current commit
+        id: verify-tests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          HEAD_SHA=$(gh api repos/${{ github.repository }}/pulls/${{ inputs.pr_number }} --jq '.head.sha')
+          echo "Checking test status for commit $HEAD_SHA"
+
+          MAX_ATTEMPTS=40
+          ATTEMPT=1
+          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+            STATUS=$(gh api repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs --jq '[.check_runs[] | select(.name == "All Required Tests")] | sort_by(.completed_at) | last | .conclusion' 2>/dev/null || echo "")
+
+            if [ "$STATUS" = "success" ]; then
+              echo "All Required Tests passed on current commit"
+              echo "verified=true" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+
+            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+              echo "Attempt $ATTEMPT/$MAX_ATTEMPTS: Check run not found yet (status: ${STATUS:-not found}), waiting 10s..."
+              sleep 10
+            fi
+            ATTEMPT=$((ATTEMPT + 1))
+          done
+
+          echo "Tests have not passed on current commit after $MAX_ATTEMPTS attempts"
+          echo "verified=false" >> $GITHUB_OUTPUT
+
+      - name: Checkout PR branch
+        if: steps.verify-tests.outputs.verified == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.head_ref }}
+          repository: ${{ inputs.head_repo }}
+          fetch-depth: 0
+          token: ${{ secrets.WORKFLOW_PAT }}
+
+      - name: Pull latest changes
+        if: steps.verify-tests.outputs.verified == 'true'
+        run: git pull origin ${{ inputs.head_ref }} || true
+
+      - name: Create gh config directory for devcontainer mount
+        if: steps.verify-tests.outputs.verified == 'true'
+        run: mkdir -p ~/.config/gh
+
+      - name: Log in to GHCR
+        if: steps.verify-tests.outputs.verified == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cryptographic design review in devcontainer
+        if: steps.verify-tests.outputs.verified == 'true'
+        uses: devcontainers/ci@v0.3
+        with:
+          imageName: ${{ inputs.devcontainer_image }}
+          cacheFrom: ${{ inputs.devcontainer_image }}
+          push: never
+          env: |
+            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+            GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
+            PR_NUMBER=${{ inputs.pr_number }}
+            HEAD_REF=${{ inputs.head_ref }}
+            REPO=${{ github.repository }}
+          runCmd: |
+            claude --print \
+              --verbose \
+              --output-format stream-json \
+              --model opus \
+              --dangerously-skip-permissions \
+              --max-turns 240 \
+              "You are a CRYPTOGRAPHIC DESIGN REVIEW specialist reviewing PR #${PR_NUMBER} in ${REPO}.
+
+            **CRITICAL: BE BRIEF. Only report issues that require action from the PR author.**
+            Do NOT list files reviewed. Do NOT explain cryptographic concepts that are correct.
+            If there are no actionable issues, post a short approval and move on.
+
+            **QUICK CHECK:** If this PR is purely infrastructure, CI/CD, devcontainer, or workflow
+            configuration with no changes to cryptographic designs, protocols, or security claims, post:
+            'Approved - No cryptographic design changes to evaluate.'
+            and stop.
+
+            Run \`git diff origin/main...HEAD\` to see changes.
+
+            **REVIEW AGAINST REFERENCE DOCUMENTS:**
+            Read these documents for authoritative context:
+            - docs/03-quantum-safe-threshold-crypto.md (threshold cryptography design)
+            - docs/06-rfc3161-compliance.md (RFC 3161 compliance details)
+            - docs/07-threat-model.md (security threat model)
+            - docs/01-architecture-overview.md (system architecture)
+
+            **CHECK FOR:**
+            - Incorrect or unsupported cryptographic claims (e.g., wrong security levels, invalid parameter choices)
+            - Threshold parameter inconsistencies (t-of-n values must be consistent across documents)
+            - Protocol specification errors (key generation, signing, verification flows)
+            - Post-quantum algorithm misuse (ML-DSA/CRYSTALS-Dilithium parameter levels, hash-based signatures)
+            - Key management lifecycle issues (generation, distribution, rotation, revocation)
+            - Timing side-channel risks in cryptographic operations
+            - Missing or incorrect security assumptions
+            - Claims that contradict the threat model
+
+            For HIGH SEVERITY cryptographic errors, fix directly and push.
+            BEFORE PUSHING: rebase with \`git pull --rebase origin ${HEAD_REF}\`
+
+            Post exactly ONE comment using:
+            gh pr comment ${PR_NUMBER} --body '## Cryptographic Design Review
+
+            [If no crypto changes: \"Approved - No cryptographic design changes to evaluate.\" and stop here]
+            [If no issues: \"Approved - Cryptographic design is sound.\" and stop here]
+
+            ### Issues Found
+            [Only list cryptographic design errors, parameter inconsistencies, or security concerns. Reference specific files:lines. Skip if none.]
+
+            ### Fixes Applied
+            [List commits pushed, if any. Skip section if none.]
+
+            ### Conclusion
+            [Approved | Needs changes | Blocking issues]'" < /dev/null 2>&1 | tee /workspaces/confidential-computing-tsa/crypto-review-output.jsonl
+
+      - name: Upload crypto review output
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: crypto-review-output
+          path: crypto-review-output.jsonl
+          retention-days: 7

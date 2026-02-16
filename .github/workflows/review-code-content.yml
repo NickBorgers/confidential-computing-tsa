@@ -1,0 +1,136 @@
+name: "Review: Code & Content"
+
+# Reusable workflow - reviews code quality and documentation accuracy
+# Called by claude-code-review.yml orchestrator
+
+on:
+  workflow_call:
+    inputs:
+      pr_number:
+        required: true
+        type: string
+      head_ref:
+        required: true
+        type: string
+      head_repo:
+        required: true
+        type: string
+      has_rust_code:
+        required: true
+        type: string
+      has_docs:
+        required: true
+        type: string
+      devcontainer_image:
+        required: true
+        type: string
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
+      WORKFLOW_PAT:
+        required: true
+
+jobs:
+  code-content-review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      packages: read
+
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.head_ref }}
+          repository: ${{ inputs.head_repo }}
+          fetch-depth: 0
+          token: ${{ secrets.WORKFLOW_PAT }}
+
+      - name: Create gh config directory for devcontainer mount
+        run: mkdir -p ~/.config/gh
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run Claude review in devcontainer
+        uses: devcontainers/ci@v0.3
+        with:
+          imageName: ${{ inputs.devcontainer_image }}
+          cacheFrom: ${{ inputs.devcontainer_image }}
+          push: never
+          env: |
+            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+            GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
+            PR_NUMBER=${{ inputs.pr_number }}
+            REPO=${{ github.repository }}
+            HEAD_REF=${{ inputs.head_ref }}
+            HAS_RUST_CODE=${{ inputs.has_rust_code }}
+            HAS_DOCS=${{ inputs.has_docs }}
+          runCmd: |
+            claude --print \
+              --verbose \
+              --output-format stream-json \
+              --model opus \
+              --dangerously-skip-permissions \
+              --max-turns 450 \
+              "You are reviewing PR #${PR_NUMBER} in ${REPO}.
+
+            **CRITICAL: BE BRIEF. Only report issues that require action from the PR author.**
+            Do NOT comment on code that is fine. Do NOT provide general observations or praise.
+            If there are no actionable issues, post a short approval and move on.
+
+            Tests have already passed. Focus on code and content quality review.
+
+            BEFORE PUSHING CHANGES:
+            1. git fetch origin ${HEAD_REF}
+            2. If author pushed new commits, rebase: git pull --rebase origin ${HEAD_REF}
+            3. If conflicts, abort and note in comment
+
+            REVIEW CHECKLIST (apply conditionally):
+
+            IF RUST CODE IS PRESENT (has_rust_code=${HAS_RUST_CODE}):
+            - Use: \`cargo test\`, \`cargo fmt --check\`, \`cargo clippy -- -D warnings\`
+            - Proper error handling with Result/Option types (no unwrap() in production code)
+            - Memory safety: correct use of lifetimes, borrowing, and ownership
+            - Thread safety: proper Arc<Mutex<>> usage, Send/Sync bounds
+            - Missing error propagation (use ? operator instead of unwrap)
+            - Unsafe code blocks without justification
+            - Race conditions in async code
+
+            IF DOCUMENTATION IS PRESENT (has_docs=${HAS_DOCS}):
+            - Technical accuracy of cryptographic claims and protocol descriptions
+            - Consistency across documents (docs/01-architecture-overview.md through docs/08-throughput-and-scaling.md)
+            - Correct use of standards references (RFC 3161, NIST SP 800-208, AMD SEV-SNP)
+            - Mermaid diagram correctness
+            - Run \`markdownlint '**/*.md' --config .markdownlint.json\` to validate
+
+            For HIGH SEVERITY issues, fix directly, commit, and push.
+
+            Post exactly ONE comment using:
+            gh pr comment ${PR_NUMBER} --body '## Code & Content Review
+
+            [If no issues: \"Approved - No issues found\" and stop here]
+
+            ### Issues Found
+            [Only list actionable items. Reference specific files:lines. Skip if none.]
+
+            ### Fixes Applied
+            [List commits pushed, if any. Skip section if none.]
+
+            ### Conclusion
+            [Approved | Needs changes | Blocking issues]'" < /dev/null 2>&1 | tee /workspaces/confidential-computing-tsa/claude-review-output.jsonl
+
+      - name: Upload Claude review output
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: claude-review-output
+          path: claude-review-output.jsonl
+          retention-days: 7
