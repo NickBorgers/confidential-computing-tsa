@@ -2,9 +2,13 @@
 
 > **CC-TSA Design Document 05** | Audience: Platform Engineers, SREs, Security Operations
 
-This document provides the complete operational guide for deploying, operating, and maintaining a Confidential Computing Timestamp Authority (CC-TSA) cluster. It covers infrastructure requirements, deployment topologies, DKG ceremony procedures, day-to-day operations, software version changes, node replacement, incident response, backup and disaster recovery, and compliance mapping.
+This document provides the complete operational guide for deploying, operating, and maintaining a Confidential Computing Timestamp Authority (CC-TSA) cluster.
+It covers infrastructure requirements, deployment topologies, DKG ceremony procedures, day-to-day operations, software version changes,
+node replacement, incident response, backup and disaster recovery, and compliance mapping.
 
-For the overall system architecture, see [Architecture Overview](01-architecture-overview.md). For failure scenarios and recovery procedures, see [Failure Modes and Recovery](04-failure-modes-and-recovery.md). For the threshold cryptography underpinning key management, see [Quantum-Safe Threshold Cryptography](03-quantum-safe-threshold-crypto.md).
+For the overall system architecture, see [Architecture Overview](01-architecture-overview.md).
+For failure scenarios and recovery procedures, see [Failure Modes and Recovery](04-failure-modes-and-recovery.md).
+For the threshold cryptography underpinning key management, see [Quantum-Safe Threshold Cryptography](03-quantum-safe-threshold-crypto.md).
 
 ---
 
@@ -35,7 +39,9 @@ This section specifies the hardware, key management, networking, and time source
 | Memory per node | 16-32 GB | Key shares and signing operations fit in <1 GB; extra for OS and application |
 | Disk per node | 64 GB SSD | OS, application, logs |
 
-SecureTSC is a hard requirement. It is available only on AMD EPYC 9004 (Genoa) and later processors. Azure DCasv5/ECasv5 series and GCP C3D confidential VMs support SecureTSC. See [Confidential Computing & Time](02-confidential-computing-and-time.md) for SecureTSC details.
+SecureTSC is a hard requirement. It is available only on AMD EPYC 9004 (Genoa) and later processors.
+Azure DCasv5/ECasv5 series and GCP C3D confidential VMs support SecureTSC.
+See [Confidential Computing & Time](02-confidential-computing-and-time.md) for SecureTSC details.
 
 ### 1.2 Key Management
 
@@ -49,7 +55,9 @@ Key shares exist **only in enclave memory**. There is no at-rest persistence, no
 | Recovery from quorum loss | New DKG ceremony + new certificate issuance |
 | External key management dependencies | None — no cloud KMS, no wrapping keys, no attestation policy management |
 
-This model eliminates the attack surface associated with at-rest key material: there are no sealed blobs to steal, no wrapping keys to compromise, and no KMS attestation policies that an operator could misconfigure or an attacker could subvert. Trust is rooted entirely in the hardware attestation of the running enclave and the software measurement bound to the TSA certificate.
+This model eliminates the attack surface associated with at-rest key material: there are no sealed blobs to steal, no wrapping keys to compromise,
+and no KMS attestation policies that an operator could misconfigure or an attacker could subvert.
+Trust is rooted entirely in the hardware attestation of the running enclave and the software measurement bound to the TSA certificate.
 
 See [Quantum-Safe Threshold Cryptography](03-quantum-safe-threshold-crypto.md) for the full key lifecycle and the rationale for the ephemeral model.
 
@@ -57,12 +65,15 @@ See [Quantum-Safe Threshold Cryptography](03-quantum-safe-threshold-crypto.md) f
 
 | Requirement | Details |
 |---|---|
-| Node-to-node | Mutual TLS (mTLS) with certificates attested during DKG; low latency (<5ms RTT recommended within a provider, <30ms RTT cross-provider) |
+| Node-to-node | Mutual TLS (mTLS) with certificates attested during DKG; cross-provider latency is acceptable given the 1-second round-trip budget |
 | Node-to-NTS | Outbound to 4+ NTS servers; UDP 123 (NTP) + TCP 4460 (NTS-KE) |
 | Load balancer to nodes | HTTPS (TLS 1.3); health check endpoint on each node |
 | Client-facing | HTTPS on port 443; RFC 3161 HTTP transport (POST to `/timestamp` endpoint) |
 
-Cross-provider networking between enclave nodes uses mTLS with certificates that are attested to each node's enclave identity. An optional WireGuard tunnel provides an additional encryption layer for defense in depth. Firewall rules should restrict node-to-node communication to the specific ports used by the threshold signing protocol, TriHaRd time exchange, and health checks.
+Cross-provider networking between enclave nodes uses mTLS with certificates that are attested to each node's enclave identity.
+An optional WireGuard tunnel provides an additional encryption layer for defense in depth.
+Firewall rules should restrict node-to-node communication to the specific ports used by the threshold signing protocol,
+TriHaRd time exchange, and health checks.
 
 ### 1.4 NTS Time Sources
 
@@ -73,7 +84,9 @@ Cross-provider networking between enclave nodes uses mTLS with certificates that
 | PTB | `ptbtime1.ptb.de` (NTS) | German national metrology institute, Stratum-1 |
 | NIST | NTS endpoint (when available) | US national standard, Stratum-1, atomic clock reference |
 
-A minimum of 4 NTS sources is required for Byzantine fault tolerance. With 4 sources and the requirement `n >= 3f + 1`, the system tolerates 1 faulty or malicious time source. Each enclave node independently queries all NTS sources -- there is no shared NTP proxy.
+A minimum of 4 NTS sources is required for Byzantine fault tolerance.
+With 4 sources and the requirement `n >= 3f + 1`, the system tolerates 1 faulty or malicious time source.
+Each enclave node independently queries all NTS sources -- there is no shared NTP proxy.
 
 See [Confidential Computing & Time](02-confidential-computing-and-time.md) for NTS protocol details and the TriHaRd cross-node validation mechanism.
 
@@ -81,7 +94,8 @@ See [Confidential Computing & Time](02-confidential-computing-and-time.md) for N
 
 ## 2. Deployment Topology Options
 
-CC-TSA supports three deployment topologies. The multi-provider topology is **recommended for production** because it ensures that no single cloud provider hosts a threshold number of nodes (3 or more out of 5).
+CC-TSA supports three deployment topologies. The multi-provider topology is **recommended for production**
+because it ensures that no single cloud provider hosts a threshold number of nodes (3 or more out of 5).
 
 ### 2.1 Option A: Single Provider (Azure)
 
@@ -118,7 +132,7 @@ CC-TSA supports three deployment topologies. The multi-provider topology is **re
 **Cons:**
 - Multi-provider operational complexity: multiple consoles, billing, IAM systems
 - Cross-provider networking requires careful configuration (mTLS mesh, firewall rules)
-- Cross-provider latency adds 10-30ms to threshold signing round-trips
+- Cross-provider latency (typically 10-30ms) is negligible within the 1-second round-trip budget
 
 ### 2.3 Option C: Triple-Provider (Maximum Resilience)
 
@@ -128,7 +142,10 @@ CC-TSA supports three deployment topologies. The multi-provider topology is **re
 | GCP | Node 3, Node 4 |
 | OCI / IBM / other | Node 5 |
 
-This is a specific case of Option B where the third provider is a full-capability confidential computing provider (e.g., Oracle Cloud Infrastructure with AMD SEV-SNP support). The distinction from Option B is that the third provider supplies its own native confidential computing infrastructure with AMD SEV-SNP attestation support.
+This is a specific case of Option B where the third provider is a full-capability confidential computing provider
+(e.g., Oracle Cloud Infrastructure with AMD SEV-SNP support).
+The distinction from Option B is that the third provider supplies its own native confidential computing infrastructure
+with AMD SEV-SNP attestation support.
 
 ### 2.4 Recommendation Matrix
 
@@ -138,7 +155,7 @@ This is a specific case of Option B where the third provider is a full-capabilit
 | Operational complexity | Low | Moderate | High |
 | Cost | Lower | Moderate | Higher |
 | Trust model | Single provider trust | No provider >= threshold | No provider >= threshold, diverse infrastructure |
-| Cross-provider latency | None (intra-provider) | 10-30ms for signing rounds | 10-30ms for signing rounds |
+| Cross-provider latency | None (intra-provider) | 10-30ms (negligible) | 10-30ms (negligible) |
 | **Recommendation** | Dev/staging only | **Production** | High-assurance use cases |
 
 ### 2.5 Multi-Provider Deployment Architecture
@@ -230,15 +247,19 @@ graph TB
 - **No single provider holds >= 3 nodes**: Azure has 2, GCP has 2, third provider has 1. A complete compromise of any single provider yields at most 2 key shares -- below the threshold of 3.
 - **Cross-provider mesh**: All 5 nodes maintain mTLS connections to all peers for threshold signing, TriHaRd time exchange, and health checks.
 - **Independent NTS queries**: Each node independently queries all 4 NTS sources. There is no shared NTP proxy or single point of failure for time.
-- **Ephemeral key shares**: Key shares exist only in enclave memory. There is no at-rest key material, no KMS dependency, and no sealed blobs to manage. Trust is rooted in the hardware attestation of the running enclave.
+- **Ephemeral key shares**: Key shares exist only in enclave memory. There is no at-rest key material, no KMS dependency, and no sealed blobs to manage.
+Trust is rooted in the hardware attestation of the running enclave.
 
 ---
 
 ## 3. DKG Ceremony Procedure
 
-Distributed Key Generation (DKG) is the routine operation that creates a TSA signing key distributed across the 5 enclave nodes. Each node receives one key share; the complete signing key never exists in any single location.
+Distributed Key Generation (DKG) is the routine operation that creates a TSA signing key distributed across the 5 enclave nodes.
+Each node receives one key share; the complete signing key never exists in any single location.
 
-Unlike traditional key ceremonies that occur once and produce long-lived keys, DKG in CC-TSA is a **routine operational procedure** that runs every time the cluster is constituted or reconstituted. Because key shares are ephemeral (memory-only), DKG is the mechanism by which the cluster transitions from "nodes running" to "nodes ready to sign."
+Unlike traditional key ceremonies that occur once and produce long-lived keys, DKG in CC-TSA is a **routine operational procedure**
+that runs every time the cluster is constituted or reconstituted. Because key shares are ephemeral (memory-only),
+DKG is the mechanism by which the cluster transitions from "nodes running" to "nodes ready to sign."
 
 See [Quantum-Safe Threshold Cryptography](03-quantum-safe-threshold-crypto.md) for the mathematical protocol. This section covers the operational procedure.
 
@@ -392,31 +413,60 @@ flowchart TD
 
 ### 3.4 Phase Details
 
-**Phase 1 -- Pre-Flight Checks.** The operator verifies that all infrastructure is ready. Each node's health endpoint must return OK, confirming the node is booted, attested, time-synchronized (TriHaRd validation passes), and able to communicate with all peers. If any check fails, the ceremony is postponed until the issue is resolved.
+**Phase 1 -- Pre-Flight Checks.** The operator verifies that all infrastructure is ready.
+Each node's health endpoint must return OK, confirming the node is booted, attested, time-synchronized (TriHaRd validation passes),
+and able to communicate with all peers. If any check fails, the ceremony is postponed until the issue is resolved.
 
-**Phase 2 -- DKG Initiation.** The operator sends a signed DKG initiation command to the coordinator node (any node can serve as coordinator). The coordinator invites all 4 peers. Each node acknowledges participation, locking itself into DKG mode (refusing timestamp requests until DKG completes or is aborted).
+**Phase 2 -- DKG Initiation.** The operator sends a signed DKG initiation command to the coordinator node
+(any node can serve as coordinator). The coordinator invites all 4 peers.
+Each node acknowledges participation, locking itself into DKG mode (refusing timestamp requests until DKG completes or is aborted).
 
-**Phase 3 -- Mutual Attestation.** Each node obtains a fresh SEV-SNP attestation report from the AMD-SP, including a nonce derived from the DKG session identifier for freshness. Each node sends its report to all peers. Each node verifies all 4 peer reports against the AMD certificate chain (ARK -> ASK -> VCEK) and checks that the measurement, VM policy, and platform version match the expected values. If any verification fails, DKG aborts -- a node with a different measurement or an invalid attestation cannot participate.
+**Phase 3 -- Mutual Attestation.** Each node obtains a fresh SEV-SNP attestation report from the AMD-SP,
+including a nonce derived from the DKG session identifier for freshness. Each node sends its report to all peers.
+Each node verifies all 4 peer reports against the AMD certificate chain (ARK -> ASK -> VCEK) and checks that the measurement,
+VM policy, and platform version match the expected values.
+If any verification fails, DKG aborts -- a node with a different measurement or an invalid attestation cannot participate.
 
-**Phase 4 -- Share Generation (Round 1).** Each node generates a random polynomial of degree `t-1 = 2` (for a 3-of-5 threshold). Each node evaluates its polynomial at points 1 through 5, producing 5 sub-shares. Each node sends the appropriate sub-share to each peer, encrypted over the attested mTLS channel. See [Quantum-Safe Threshold Cryptography](03-quantum-safe-threshold-crypto.md) for the Feldman VSS protocol details.
+**Phase 4 -- Share Generation (Round 1).** Each node generates a random polynomial of degree `t-1 = 2` (for a 3-of-5 threshold).
+Each node evaluates its polynomial at points 1 through 5, producing 5 sub-shares.
+Each node sends the appropriate sub-share to each peer, encrypted over the attested mTLS channel.
+See [Quantum-Safe Threshold Cryptography](03-quantum-safe-threshold-crypto.md) for the Feldman VSS protocol details.
 
-**Phase 5 -- Verification (Round 2).** Each node combines the sub-shares received from all peers (and its own) to compute its final key share. Each node broadcasts polynomial commitments (Feldman commitments). All nodes verify the commitments against the sub-shares they received -- if any commitment does not match, the offending node is identified and DKG aborts.
+**Phase 5 -- Verification (Round 2).** Each node combines the sub-shares received from all peers (and its own) to compute its final key share.
+Each node broadcasts polynomial commitments (Feldman commitments).
+All nodes verify the commitments against the sub-shares they received --
+if any commitment does not match, the offending node is identified and DKG aborts.
 
-**Phase 6 -- Public Key Derivation.** All nodes independently compute the group public key from the polynomial commitments. The coordinator collects all 5 computed public keys and verifies they are identical. A mismatch indicates a protocol error or a malicious node.
+**Phase 6 -- Public Key Derivation.** All nodes independently compute the group public key from the polynomial commitments.
+The coordinator collects all 5 computed public keys and verifies they are identical.
+A mismatch indicates a protocol error or a malicious node.
 
-**Phase 7 -- Certificate Issuance.** The coordinator generates a Certificate Signing Request (CSR) containing the derived group public key, the TSA's distinguished name, the `id-kp-timeStamping` Extended Key Usage (OID 1.3.6.1.5.5.7.3.8), and the TSA policy OID. The CSR also records the attestation measurement of the enclave nodes, binding the certificate to the specific software version that generated the key. The CSR is submitted to the Certificate Authority. Depending on the CA, this may be automated (ACME-like) or require manual approval. The issued X.509 certificate is distributed to all 5 nodes.
+**Phase 7 -- Certificate Issuance.** The coordinator generates a Certificate Signing Request (CSR) containing the derived group public key,
+the TSA's distinguished name, the `id-kp-timeStamping` Extended Key Usage (OID 1.3.6.1.5.5.7.3.8), and the TSA policy OID.
+The CSR also records the attestation measurement of the enclave nodes,
+binding the certificate to the specific software version that generated the key.
+The CSR is submitted to the Certificate Authority. Depending on the CA, this may be automated (ACME-like) or require manual approval.
+The issued X.509 certificate is distributed to all 5 nodes.
 
-**Phase 8 -- Ceremony Completion.** The coordinator broadcasts "DKG complete" to all nodes. All nodes transition from DKG mode to Active mode and begin accepting timestamp requests. Key shares remain in enclave memory only — they are not persisted to any durable storage. The operator verifies end-to-end functionality by submitting a test timestamp request and validating the response. The ceremony transcript (attestation reports, commitments, certificate, attestation measurement, operator signatures, timestamps) is archived to immutable storage for audit purposes.
+**Phase 8 -- Ceremony Completion.** The coordinator broadcasts "DKG complete" to all nodes.
+All nodes transition from DKG mode to Active mode and begin accepting timestamp requests.
+Key shares remain in enclave memory only -- they are not persisted to any durable storage.
+The operator verifies end-to-end functionality by submitting a test timestamp request and validating the response.
+The ceremony transcript (attestation reports, commitments, certificate, attestation measurement, operator signatures, timestamps)
+is archived to immutable storage for audit purposes.
 
 ### 3.5 Certificate Issuance as Part of DKG
 
-Certificate issuance is an integral part of every DKG ceremony, not a separate process. Because the signing key is ephemeral and unique to each DKG, every DKG produces a new public key that requires a new certificate. The certificate binds together:
+Certificate issuance is an integral part of every DKG ceremony, not a separate process.
+Because the signing key is ephemeral and unique to each DKG, every DKG produces a new public key that requires a new certificate.
+The certificate binds together:
 
 - The **group public key** derived during DKG
 - The **attestation measurement** of the software running in the enclaves
 - The **TSA identity** (distinguished name, policy OID)
 
-This binding means that the certificate serves as a permanent, verifiable record of what software produced the signing key. Relying parties can verify that a timestamp was produced by enclaves running a specific, known software version.
+This binding means that the certificate serves as a permanent, verifiable record of what software produced the signing key.
+Relying parties can verify that a timestamp was produced by enclaves running a specific, known software version.
 
 **Certificate lifecycle under the ephemeral model:**
 
@@ -448,10 +498,10 @@ The following table defines the key operational metrics, their healthy ranges, a
 | Metric | Healthy | Warning | Critical |
 |---|---|---|---|
 | Nodes online | 5 | 4 | <= 3 |
-| TriHaRd max drift | <10 us | <50 us | >= 50 us (node excluded) |
+| TriHaRd max drift | <10 ms | <50 ms | >= 100 ms (node excluded) |
 | NTS source agreement | 4/4 agree | 3/4 agree | <3/4 agree |
 | Attestation status | All valid | 1 stale (>1h since last refresh) | Any invalid |
-| Signing latency (p99) | <50 ms | <200 ms | >= 200 ms |
+| Signing latency (p99) | <500 ms | <2s | >= 5s |
 | Signing success rate | >99.9% | >99% | <99% |
 | Key shares in memory | All 5 nodes hold shares | 4 nodes hold shares | <=3 nodes hold shares |
 | Certificate validity | >30 days remaining | <30 days remaining | <7 days remaining |
@@ -502,15 +552,15 @@ flowchart LR
 | Node down | Warning | 4/5 nodes online | Auto-recovery attempt, notify on-call via Slack |
 | Node down | Critical | 3/5 nodes online | Page on-call engineer, recover immediately |
 | Signing halted | Emergency | <3 nodes online | Page all engineers, execute recovery playbook (see [Failure Modes](04-failure-modes-and-recovery.md)) |
-| Clock drift | Warning | Any node >25 us drift from TriHaRd median | Monitor; may self-correct after next NTS sync |
-| Clock drift | Critical | Any node >50 us drift from TriHaRd median | Node auto-excluded from signing, investigate root cause |
+| Clock drift | Warning | Any node >50 ms drift from TriHaRd median | Monitor; may self-correct after next NTS sync |
+| Clock drift | Critical | Any node >100 ms drift from TriHaRd median | Node auto-excluded from signing, investigate root cause |
 | Attestation stale | Warning | Any node's attestation report >1h old | Trigger attestation refresh |
 | Attestation invalid | Critical | Any node's attestation verification fails | Node cannot participate in signing, investigate immediately |
 | Certificate expiring | Warning | <30 days to certificate expiry | Plan certificate renewal (see [Playbook 7](#playbook-7-certificate-expiry)) |
 | Certificate expiring | Critical | <7 days to certificate expiry | Emergency certificate renewal |
 | NTS sources degraded | Warning | Only 3/4 NTS sources responding | Check network connectivity to missing source |
 | NTS sources critical | Critical | <3/4 NTS sources responding | Cannot maintain Byzantine fault tolerance for time; investigate |
-| Signing latency elevated | Warning | p99 signing latency >200 ms | Investigate network latency between nodes |
+| Signing latency elevated | Warning | p99 signing latency >2s | Investigate network latency between nodes |
 | Signing errors | Critical | Signing success rate <99% | Investigate failing nodes, check partial signature verification |
 
 ### 4.3 Operational State Machine
@@ -523,7 +573,7 @@ stateDiagram-v2
     Attesting --> Synchronizing: Attestation valid
     Attesting --> Failed: Attestation failed
     Synchronizing --> WaitingForDKG: TriHaRd sync complete,<br/>joined cluster
-    Synchronizing --> TimeDrift: Drift > 50us
+    Synchronizing --> TimeDrift: Drift > 100ms
 
     WaitingForDKG --> DKGMode: DKG initiated
     DKGMode --> Active: DKG complete,<br/>key shares in memory
@@ -537,8 +587,8 @@ stateDiagram-v2
 
     Active --> DKGMode: Software change or<br/>key rotation initiated
 
-    Active --> TimeDrift: Node drift > 50us
-    TimeDrift --> Active: NTS resync, drift < 50us
+    Active --> TimeDrift: Node drift > 100ms
+    TimeDrift --> Active: NTS resync, drift < 100ms
     TimeDrift --> Failed: Persistent drift
 
     Failed --> Booting: Restart / Replace
@@ -561,7 +611,9 @@ stateDiagram-v2
 
 ## 5. Software Version Change Procedure
 
-Software version changes in CC-TSA are **coordinated key rotation procedures**, not rolling updates. Because the software measurement is bound to the TSA certificate (see [Architecture Overview](01-architecture-overview.md) Section 8), any change to the application image produces a new attestation measurement and requires a new DKG ceremony and new certificate.
+Software version changes in CC-TSA are **coordinated key rotation procedures**, not rolling updates.
+Because the software measurement is bound to the TSA certificate (see [Architecture Overview](01-architecture-overview.md) Section 8),
+any change to the application image produces a new attestation measurement and requires a new DKG ceremony and new certificate.
 
 This is a deliberate design choice: there is never ambiguity about which software version signed a given timestamp. Each certificate corresponds to exactly one software measurement.
 
@@ -661,7 +713,9 @@ sequenceDiagram
 
 ### 5.3 Signing Downtime
 
-Unlike a rolling update, a software version change involves a **planned signing outage**. This is an inherent consequence of the immutable software + ephemeral key model: the old key shares are lost when the old software stops, and the new key shares do not exist until DKG completes on the new software.
+Unlike a rolling update, a software version change involves a **planned signing outage**.
+This is an inherent consequence of the immutable software + ephemeral key model:
+the old key shares are lost when the old software stops, and the new key shares do not exist until DKG completes on the new software.
 
 | Phase | Duration | Signing Available |
 |---|---|---|
@@ -682,9 +736,11 @@ Unlike a rolling update, a software version change involves a **planned signing 
 ### 5.4 Key Safety Rules
 
 - **Deploy the same image to all nodes**: All 5 nodes must run identical software to produce the same attestation measurement. Mixed-version clusters are not supported.
-- **No rollback to old key**: Once the old software is stopped, the old key shares are irrecoverably lost. If the new software has issues, the resolution is to fix the new software and run another DKG — not to restore the old key.
+- **No rollback to old key**: Once the old software is stopped, the old key shares are irrecoverably lost.
+If the new software has issues, the resolution is to fix the new software and run another DKG -- not to restore the old key.
 - **Verify before resuming**: Complete the full DKG ceremony and test signing before adding nodes back to the load balancer.
-- **Communicate the certificate change**: Relying parties that pin to specific TSA certificates must be notified of the new certificate. Relying parties that validate via the CA chain are unaffected.
+- **Communicate the certificate change**: Relying parties that pin to specific TSA certificates must be notified of the new certificate.
+Relying parties that validate via the CA chain are unaffected.
 
 ---
 
@@ -757,8 +813,10 @@ flowchart TD
 
 If the cluster still has 3 or more nodes with key shares in memory, signing continues in degraded mode. The operator can choose when to perform the replacement and DKG:
 
-- **Deferred replacement**: Continue signing with the reduced cluster. Provision the replacement node and schedule the DKG during a maintenance window. This minimizes disruption but leaves the cluster with reduced fault tolerance.
-- **Immediate replacement**: Provision the replacement node as quickly as possible and run DKG immediately. This restores full fault tolerance but requires a brief signing outage during the DKG ceremony.
+- **Deferred replacement**: Continue signing with the reduced cluster. Provision the replacement node and schedule the DKG during a maintenance window.
+This minimizes disruption but leaves the cluster with reduced fault tolerance.
+- **Immediate replacement**: Provision the replacement node as quickly as possible and run DKG immediately.
+This restores full fault tolerance but requires a brief signing outage during the DKG ceremony.
 
 In either case, the DKG ceremony produces entirely new key shares and a new certificate. The old key shares held by the surviving nodes are discarded when they participate in the new DKG.
 
@@ -766,7 +824,8 @@ In either case, the DKG ceremony produces entirely new key shares and a new cert
 
 ## 7. Incident Response Playbooks
 
-This section provides structured incident response procedures for the most common CC-TSA operational scenarios. Each playbook follows a consistent format: trigger, severity, actions, escalation, and resolution criteria.
+This section provides structured incident response procedures for the most common CC-TSA operational scenarios.
+Each playbook follows a consistent format: trigger, severity, actions, escalation, and resolution criteria.
 
 For a comprehensive analysis of failure modes and their cascading effects, see [Failure Modes and Recovery](04-failure-modes-and-recovery.md).
 
@@ -841,7 +900,7 @@ For a comprehensive analysis of failure modes and their cascading effects, see [
 
 | Field | Detail |
 |---|---|
-| **Trigger** | TriHaRd excludes a node due to >50 us drift from median |
+| **Trigger** | TriHaRd excludes a node due to >100 ms drift from median |
 | **Severity** | Warning (single node) -> Critical (multiple nodes) |
 | **Impact** | Excluded node cannot participate in signing; fault tolerance reduced |
 
@@ -856,7 +915,7 @@ For a comprehensive analysis of failure modes and their cascading effects, see [
 
 **Escalation:** If multiple nodes show drift simultaneously, investigate a common cause (e.g., NTS source compromise, network-level time manipulation). Page security team.
 
-**Resolution criteria:** Node passes TriHaRd validation (drift <50 us for 3 consecutive rounds) and rejoins signing pool.
+**Resolution criteria:** Node passes TriHaRd validation (drift <100 ms for 3 consecutive rounds) and rejoins signing pool.
 
 ### Playbook 5: Attestation Failure
 
@@ -870,8 +929,10 @@ For a comprehensive analysis of failure modes and their cascading effects, see [
 
 1. Verify the expected measurement matches the deployed application image. Recompute the measurement from the image and compare.
 2. Check if the AMD-SP firmware was updated by the cloud provider (firmware updates change the platform TCB version, which changes the attestation report).
-3. If the measurement changed due to a provider firmware update: verify the firmware update is legitimate, then redeploy the application image and re-attest. A new DKG will be needed to include this node.
-4. If the measurement changed due to an unexpected image modification: **treat as a potential security incident**. Investigate whether the image was tampered with. Do not include this node in any DKG ceremony.
+3. If the measurement changed due to a provider firmware update: verify the firmware update is legitimate,
+   then redeploy the application image and re-attest. A new DKG will be needed to include this node.
+4. If the measurement changed due to an unexpected image modification: **treat as a potential security incident**.
+   Investigate whether the image was tampered with. Do not include this node in any DKG ceremony.
 5. If the measurement matches but the attestation signature fails verification: check the AMD certificate chain (VCEK -> ASK -> ARK). The VCEK may have been rotated by AMD.
 
 **Escalation:** If attestation failure cannot be explained by a legitimate firmware or VCEK update, escalate to the security team as a potential compromise.
@@ -943,7 +1004,9 @@ For a comprehensive analysis of failure modes and their cascading effects, see [
 
 ### 8.1 What Is Backed Up
 
-Under the ephemeral key model, key shares are intentionally not persisted. The backup scope is limited to the artifacts needed to **reconstitute the cluster** (deploy software, run DKG, obtain certificate) — not to restore previous key material.
+Under the ephemeral key model, key shares are intentionally not persisted.
+The backup scope is limited to the artifacts needed to **reconstitute the cluster**
+(deploy software, run DKG, obtain certificate) -- not to restore previous key material.
 
 | Data | Backup Method | Location | Frequency |
 |---|---|---|---|
@@ -961,11 +1024,14 @@ Under the ephemeral key model, key shares are intentionally not persisted. The b
 | Key shares | Exist only in enclave memory; ephemeral by design. Backing up would undermine the security model. |
 | Transient signing state | Partial commitments and partial signatures exist only during a signing round |
 
-The absence of at-rest key material is a **security feature**, not a limitation. It eliminates the attack surface of sealed blobs, wrapping keys, and KMS attestation policy management. Recovery from any scenario that loses key shares follows the same simple procedure: run a new DKG ceremony.
+The absence of at-rest key material is a **security feature**, not a limitation.
+It eliminates the attack surface of sealed blobs, wrapping keys, and KMS attestation policy management.
+Recovery from any scenario that loses key shares follows the same simple procedure: run a new DKG ceremony.
 
 ### 8.3 Recovery Scenarios
 
-Under the ephemeral model, **key loss is normal operation**. Any scenario that causes nodes to lose their key shares (reboot, failure, planned maintenance) is resolved by a new DKG ceremony. This is a routine procedure, not an emergency.
+Under the ephemeral model, **key loss is normal operation**. Any scenario that causes nodes to lose their key shares
+(reboot, failure, planned maintenance) is resolved by a new DKG ceremony. This is a routine procedure, not an emergency.
 
 ```mermaid
 flowchart TD
@@ -1006,9 +1072,13 @@ flowchart TD
 | Full outage (all nodes down) | 15-30 min | 15-30 min | All key shares lost; new DKG + new certificate required |
 | Provider region failure | 0 (signing continues) | Next scheduled DKG | Remaining providers have >= 3 nodes with key shares |
 
-**Key loss is expected and recoverable**: Every recovery path leads to the same procedure — run a new DKG ceremony. This produces new key shares, a new public key, and a new certificate. Previously issued timestamps remain valid (they were signed with the old key, which was valid at the time of signing, and verifiers can validate against the old certificate).
+**Key loss is expected and recoverable**: Every recovery path leads to the same procedure -- run a new DKG ceremony.
+This produces new key shares, a new public key, and a new certificate.
+Previously issued timestamps remain valid (they were signed with the old key,
+which was valid at the time of signing, and verifiers can validate against the old certificate).
 
-**No timestamp data is lost in any scenario**: The TSA does not store timestamp data — tokens are returned to clients in real-time. The only state that matters is the ability to sign, which is restored by DKG.
+**No timestamp data is lost in any scenario**: The TSA does not store timestamp data -- tokens are returned to clients in real-time.
+The only state that matters is the ability to sign, which is restored by DKG.
 
 For detailed recovery procedures for each failure scenario, see [Failure Modes and Recovery](04-failure-modes-and-recovery.md).
 
@@ -1034,7 +1104,7 @@ This section maps the CC-TSA design and operational procedures to the requiremen
 | Key generation | ETSI EN 319 421 Section 7.2 | DKG ceremony with mutual attestation, 4-eyes principle (2 operators), ceremony transcript archived |
 | Key protection | ETSI EN 319 421 Section 7.3 | Threshold shares (3-of-5) held exclusively in SEV-SNP enclave memory (hardware-encrypted, never persisted to durable storage); software immutability enforced by binding attestation measurement to TSA certificate; no at-rest key material to protect, steal, or manage |
 | Time synchronization | ETSI EN 319 421 Section 7.4 | NTS-authenticated NTP (RFC 8915) with 4+ Stratum-1 sources; SecureTSC hardware clock; TriHaRd Byzantine cross-validation. See [Confidential Computing & Time](02-confidential-computing-and-time.md) |
-| Timestamp accuracy | ETSI EN 319 421 Section 7.4 | 50ms accuracy field in token (actual <2ms); conservative margin for degraded conditions |
+| Timestamp accuracy | ETSI EN 319 421 Section 7.4 | 1-second accuracy field in token; conservative margin for degraded conditions |
 | Audit logging | ETSI EN 319 421 Section 7.5 | Immutable audit log with attestation-bound entries; DKG ceremony transcripts; operational event logging |
 | Disaster recovery | ETSI EN 319 421 Section 7.6 | Multi-provider deployment; recovery via DKG reconstitution (no external key material dependencies); documented procedures (this document); quarterly DKG drill testing |
 | Qualified signatures | eIDAS Article 42 | Hybrid signatures: ECDSA P-384 (qualified today under current standards) + ML-DSA-65 (quantum-safe, future-ready). See [Quantum-Safe Threshold Cryptography](03-quantum-safe-threshold-crypto.md) |

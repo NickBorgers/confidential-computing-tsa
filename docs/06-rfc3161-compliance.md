@@ -2,11 +2,21 @@
 
 > **CC-TSA Design Document 06** | Audience: Architects, Engineers, Security Reviewers, Integrators
 
-This document provides a detailed analysis of how the Confidential Computing Timestamp Authority (CC-TSA) implements the RFC 3161 Time-Stamp Protocol. It covers request processing, response structure, the CMS SignedData encoding with dual hybrid signatures (ECDSA P-384 + ML-DSA-65), backward compatibility with classical verifiers, the verification decision tree, accuracy semantics, token size analysis, and HTTP transport. CC-TSA is a fully RFC 3161-compliant Timestamp Authority that additionally provides post-quantum cryptographic assurance through a second `SignerInfo` in the CMS `SignedData` structure.
+This document provides a detailed analysis of how the Confidential Computing Timestamp Authority (CC-TSA) implements the RFC 3161 Time-Stamp Protocol.
+It covers request processing, response structure, the CMS SignedData encoding with dual hybrid signatures (ECDSA P-384 + ML-DSA-65),
+backward compatibility with classical verifiers, the verification decision tree, accuracy semantics, token size analysis, and HTTP transport.
+CC-TSA is a fully RFC 3161-compliant Timestamp Authority that additionally provides post-quantum cryptographic assurance
+through a second `SignerInfo` in the CMS `SignedData` structure.
 
-The key distinguishing property of CC-TSA tokens is that each token carries **two signatures** (dual `SignerInfo` entries): one classical ECDSA P-384 signature for backward compatibility with all existing verifiers, and one ML-DSA-65 post-quantum signature produced via 3-of-5 threshold signing across hardware-attested enclaves. The threshold signature is standard ML-DSA-65 output -- verifiers cannot distinguish it from a single-signer signature.
+The key distinguishing property of CC-TSA tokens is that each token carries **two signatures** (dual `SignerInfo` entries):
+one classical ECDSA P-384 signature for backward compatibility with all existing verifiers,
+and one ML-DSA-65 post-quantum signature produced via 3-of-5 threshold signing across hardware-attested enclaves.
+The threshold signature is standard ML-DSA-65 output -- verifiers cannot distinguish it from a single-signer signature.
 
-For the overall system architecture, see [Architecture Overview](01-architecture-overview.md). For the threshold signing protocol and key management, see [Quantum-Safe Threshold Cryptography](03-quantum-safe-threshold-crypto.md). For the trusted time mechanisms that produce the `genTime` value in each token, see [Confidential Computing & Time](02-confidential-computing-and-time.md).
+For the overall system architecture, see [Architecture Overview](01-architecture-overview.md).
+For the threshold signing protocol and key management, see [Quantum-Safe Threshold Cryptography](03-quantum-safe-threshold-crypto.md).
+For the trusted time mechanisms that produce the `genTime` value in each token,
+see [Confidential Computing & Time](02-confidential-computing-and-time.md).
 
 ---
 
@@ -26,14 +36,22 @@ For the overall system architecture, see [Architecture Overview](01-architecture
 
 ## 1. Overview
 
-CC-TSA is a fully RFC 3161-compliant Timestamp Authority. It accepts `TimeStampReq` messages over HTTP (RFC 3161 Section 3.4) and returns `TimeStampResp` messages containing CMS `SignedData` timestamp tokens (RFC 5652). Every aspect of the request/response protocol, token format, hash algorithm negotiation, policy OID handling, nonce semantics, serial number generation, and accuracy reporting conforms to RFC 3161 and its companion standards.
+CC-TSA is a fully RFC 3161-compliant Timestamp Authority.
+It accepts `TimeStampReq` messages over HTTP (RFC 3161 Section 3.4) and returns `TimeStampResp` messages
+containing CMS `SignedData` timestamp tokens (RFC 5652). Every aspect of the request/response protocol, token format,
+hash algorithm negotiation, policy OID handling, nonce semantics, serial number generation,
+and accuracy reporting conforms to RFC 3161 and its companion standards.
 
 The single architectural difference from a traditional TSA is that each CC-TSA timestamp token carries **two signatures** encoded as two `SignerInfo` entries within the CMS `SignedData` structure:
 
 - **SignerInfo #1 (Classical)**: ECDSA P-384 signature, verifiable by all existing RFC 3161 verification software.
-- **SignerInfo #2 (Post-Quantum)**: ML-DSA-65 (FIPS 204) signature, produced via 3-of-5 threshold signing across hardware-attested AMD SEV-SNP enclaves. The threshold combination yields a standard ML-DSA-65 signature that is indistinguishable from a single-signer output.
+- **SignerInfo #2 (Post-Quantum)**: ML-DSA-65 (FIPS 204) signature, produced via 3-of-5 threshold signing
+across hardware-attested AMD SEV-SNP enclaves.
+The threshold combination yields a standard ML-DSA-65 signature that is indistinguishable from a single-signer output.
 
-This dual-signature approach is permitted by RFC 5652 (CMS), which explicitly allows multiple `SignerInfo` entries in a `SignedData` structure. Classical verifiers process the ECDSA `SignerInfo` and skip the ML-DSA `SignerInfo` (unrecognized algorithm OID). PQC-aware verifiers can verify both. No modification is required to existing verification software.
+This dual-signature approach is permitted by RFC 5652 (CMS), which explicitly allows multiple `SignerInfo` entries
+in a `SignedData` structure. Classical verifiers process the ECDSA `SignerInfo` and skip the ML-DSA `SignerInfo`
+(unrecognized algorithm OID). PQC-aware verifiers can verify both. No modification is required to existing verification software.
 
 ```mermaid
 flowchart LR
@@ -96,7 +114,11 @@ MessageImprint ::= SEQUENCE {
 }
 ```
 
-The `messageImprint` contains the hash of the data the client wishes to timestamp. CC-TSA never sees the original data -- only the hash value. The `reqPolicy` allows the client to request a specific TSA policy. The `nonce` provides replay protection (the TSA echoes it in the response, allowing the client to match responses to requests). The `certReq` flag indicates whether the client wants the TSA certificate chain included in the response (CC-TSA always includes certificates regardless, per best practice).
+The `messageImprint` contains the hash of the data the client wishes to timestamp.
+CC-TSA never sees the original data -- only the hash value. The `reqPolicy` allows the client to request a specific TSA policy.
+The `nonce` provides replay protection (the TSA echoes it in the response, allowing the client to match responses to requests).
+The `certReq` flag indicates whether the client wants the TSA certificate chain included in the response
+(CC-TSA always includes certificates regardless, per best practice).
 
 ### Supported Hash Algorithms
 
@@ -110,7 +132,9 @@ CC-TSA supports the following hash algorithms for the `messageImprint` field. Th
 | SHA3-256 | 2.16.840.1.101.3.4.2.8 | 32 bytes | Supported |
 | SHA3-384 | 2.16.840.1.101.3.4.2.9 | 48 bytes | Supported |
 
-SHA-384 is the recommended algorithm because it aligns with the ECDSA P-384 signing algorithm (which uses SHA-384 for the digest) and provides a comfortable security margin for long-lived timestamps. SHA-1 and MD5 are explicitly **rejected** -- CC-TSA returns `badAlg` for these deprecated algorithms.
+SHA-384 is the recommended algorithm because it aligns with the ECDSA P-384 signing algorithm (which uses SHA-384 for the digest)
+and provides a comfortable security margin for long-lived timestamps.
+SHA-1 and MD5 are explicitly **rejected** -- CC-TSA returns `badAlg` for these deprecated algorithms.
 
 ### Request Validation Flow
 
@@ -167,10 +191,13 @@ flowchart TD
 1. **Parse ASN.1**: Decode the DER-encoded `TimeStampReq`. If the byte stream is malformed or does not conform to the ASN.1 schema, return `badDataFormat`.
 2. **Verify version**: The `version` field must be `1` (the only version defined by RFC 3161). Any other value results in `badRequest`.
 3. **Verify hash algorithm**: The `hashAlgorithm` OID in `messageImprint` must be in the supported set. SHA-1 (1.3.14.3.2.26) and MD5 (1.2.840.113549.2.5) are explicitly rejected with `badAlg`.
-4. **Verify hash length**: The `hashedMessage` octet string length must match the expected output size for the declared algorithm (e.g., 32 bytes for SHA-256, 48 bytes for SHA-384). A mismatch indicates a malformed request and results in `badDataFormat`.
-5. **Verify policy**: If `reqPolicy` is present, it must match the CC-TSA policy OID or be in the set of policies the deployment supports. If the client requests an unsupported policy, return `unacceptedPolicy`.
+4. **Verify hash length**: The `hashedMessage` octet string length must match the expected output size for the declared algorithm
+(e.g., 32 bytes for SHA-256, 48 bytes for SHA-384). A mismatch indicates a malformed request and results in `badDataFormat`.
+5. **Verify policy**: If `reqPolicy` is present, it must match the CC-TSA policy OID or be in the set of policies the deployment supports.
+If the client requests an unsupported policy, return `unacceptedPolicy`.
 
-If all checks pass, the request proceeds to trusted time acquisition and TSTInfo construction. See [Architecture Overview](01-architecture-overview.md) for the full request lifecycle including threshold signing.
+If all checks pass, the request proceeds to trusted time acquisition and TSTInfo construction.
+See [Architecture Overview](01-architecture-overview.md) for the full request lifecycle including threshold signing.
 
 ---
 
@@ -193,7 +220,8 @@ PKIStatusInfo ::= SEQUENCE {
 }
 ```
 
-For successful requests, `status` is `granted` (0) and `timeStampToken` contains the CMS `SignedData` structure. For failed requests, `status` is `rejection` (2) and `failInfo` indicates the reason; `timeStampToken` is absent.
+For successful requests, `status` is `granted` (0) and `timeStampToken` contains the CMS `SignedData` structure.
+For failed requests, `status` is `rejection` (2) and `failInfo` indicates the reason; `timeStampToken` is absent.
 
 ### PKIStatus Values
 
@@ -245,24 +273,31 @@ TSTInfo ::= SEQUENCE {
 | `messageImprint` | Copied from request | Hash algorithm OID + hash value, unchanged |
 | `serialNumber` | Monotonically increasing, unique | Per-node counter + node ID to ensure global uniqueness across the cluster |
 | `genTime` | UTC from SecureTSC + NTS | GeneralizedTime with fractional seconds (e.g., `20260213120000.000Z`) |
-| `accuracy` | `{seconds: 0, millis: 50, micros: 0}` | 50ms conservative; actual precision approximately 1.2ms (see [Section 7](#7-accuracy-field)) |
+| `accuracy` | `{seconds: 1, millis: 0, micros: 0}` | 1 second conservative; timestamping is not latency-sensitive work (see [Section 7](#7-accuracy-field)) |
 | `ordering` | FALSE | CC-TSA does not guarantee total ordering across all tokens |
 | `nonce` | Copied from request (if present) | Echoed for replay protection; absent if not in request |
 | `tsa` | CC-TSA GeneralName | DirectoryName with the TSA's distinguished name from the certificate |
 
-**Serial number generation**: Each enclave node maintains a monotonically increasing counter. The serial number is constructed as `(node_id << 48) | counter`, ensuring global uniqueness without cross-node coordination. This allows each of the 5 nodes to generate serial numbers independently when serving as coordinator for a timestamp request.
+**Serial number generation**: Each enclave node maintains a monotonically increasing counter.
+The serial number is constructed as `(node_id << 48) | counter`, ensuring global uniqueness without cross-node coordination.
+This allows each of the 5 nodes to generate serial numbers independently when serving as coordinator for a timestamp request.
 
-**genTime precision**: The `genTime` field is encoded as `GeneralizedTime` with fractional seconds (e.g., `20260213120000.123Z`). The time is derived from the trusted time chain described in [Confidential Computing & Time](02-confidential-computing-and-time.md): SecureTSC provides sub-nanosecond resolution hardware time, cross-validated against NTS-authenticated NTP sources via the TriHaRd Byzantine fault-tolerant protocol.
+**genTime precision**: The `genTime` field is encoded as `GeneralizedTime` with fractional seconds (e.g., `20260213120000.123Z`).
+The time is derived from the trusted time chain described in [Confidential Computing & Time](02-confidential-computing-and-time.md):
+SecureTSC provides sub-nanosecond resolution hardware time,
+cross-validated against NTS-authenticated NTP sources via the TriHaRd Byzantine fault-tolerant protocol.
 
 ---
 
 ## 4. CMS SignedData Structure
 
-This section provides a detailed breakdown of the complete CMS `ContentInfo` structure produced by CC-TSA for each timestamp token. The structure follows RFC 5652 (CMS) with the timestamp-specific content type from RFC 3161.
+This section provides a detailed breakdown of the complete CMS `ContentInfo` structure produced by CC-TSA for each timestamp token.
+The structure follows RFC 5652 (CMS) with the timestamp-specific content type from RFC 3161.
 
 ### Annotated Structure Diagram
 
-The following diagram shows the full hierarchy from the outer `ContentInfo` envelope down to individual fields of each `SignerInfo`. This is the exact structure that a DER decoder produces when parsing a CC-TSA timestamp token.
+The following diagram shows the full hierarchy from the outer `ContentInfo` envelope down to individual fields of each `SignerInfo`.
+This is the exact structure that a DER decoder produces when parsing a CC-TSA timestamp token.
 
 ```mermaid
 graph TD
@@ -283,7 +318,7 @@ graph TD
         TST_MI["messageImprint:<br/>{SHA-384, hash-value}"]
         TST_SN["serialNumber: unique-integer"]
         TST_GT["genTime:<br/>20260213120000.000Z"]
-        TST_ACC["accuracy:<br/>{0s, 50ms, 0us}"]
+        TST_ACC["accuracy:<br/>{1s, 0ms, 0us}"]
         TST_N["nonce: from-request"]
     end
 
@@ -358,13 +393,19 @@ graph TD
 
 ### Field Details
 
-**ContentInfo**: The outermost ASN.1 structure. The `contentType` is `id-signedData` (OID 1.2.840.113549.1.7.2), indicating that the content is a CMS SignedData structure.
+**ContentInfo**: The outermost ASN.1 structure. The `contentType` is `id-signedData` (OID 1.2.840.113549.1.7.2),
+indicating that the content is a CMS SignedData structure.
 
-**SignedData version**: Set to `3` because the `encapContentInfo` uses a content type other than `id-data` (it uses `id-ct-TSTInfo`), which requires version 3 per RFC 5652 Section 5.1.
+**SignedData version**: Set to `3` because the `encapContentInfo` uses a content type other than `id-data`
+(it uses `id-ct-TSTInfo`), which requires version 3 per RFC 5652 Section 5.1.
 
-**digestAlgorithms**: Contains `SHA-384` as a single entry. Both `SignerInfo` entries use SHA-384 as their digest algorithm, so only one entry is needed in this SET. Per RFC 5652, this field should contain the union of all digest algorithms used by all `SignerInfo` entries.
+**digestAlgorithms**: Contains `SHA-384` as a single entry. Both `SignerInfo` entries use SHA-384 as their digest algorithm,
+so only one entry is needed in this SET.
+Per RFC 5652, this field should contain the union of all digest algorithms used by all `SignerInfo` entries.
 
-**encapContentInfo**: Contains the DER-encoded `TSTInfo`. The `eContentType` is `id-ct-TSTInfo` (OID 1.2.840.113549.1.9.16.1.4), which identifies this as an RFC 3161 timestamp token. The `eContent` is the DER encoding of the `TSTInfo` structure wrapped in an `[0] EXPLICIT OCTET STRING` tag.
+**encapContentInfo**: Contains the DER-encoded `TSTInfo`. The `eContentType` is `id-ct-TSTInfo` (OID 1.2.840.113549.1.9.16.1.4),
+which identifies this as an RFC 3161 timestamp token.
+The `eContent` is the DER encoding of the `TSTInfo` structure wrapped in an `[0] EXPLICIT OCTET STRING` tag.
 
 **certificates**: Contains the full certificate chain needed for self-contained verification:
 - The TSA's ECDSA P-384 certificate (for verifying SignerInfo #1)
@@ -373,9 +414,18 @@ graph TD
 
 Both TSA certificates contain the `id-kp-timeStamping` (OID 1.3.6.1.5.5.7.3.8) extended key usage, as required by RFC 3161 Section 2.3.
 
-**SignerInfo #1 (Classical)**: The ECDSA P-384 signature over the `TSTInfo`. The `sid` field uses `IssuerAndSerialNumber` to reference the ECDSA TSA certificate. The `signedAttrs` include the mandatory `contentType` and `messageDigest` attributes, plus the `signingCertificateV2` attribute (RFC 5035) that binds this `SignerInfo` to a specific certificate, preventing certificate substitution attacks. The signature algorithm is `ecdsa-with-SHA384` (OID 1.2.840.10045.4.3.3).
+**SignerInfo #1 (Classical)**: The ECDSA P-384 signature over the `TSTInfo`. The `sid` field uses `IssuerAndSerialNumber`
+to reference the ECDSA TSA certificate. The `signedAttrs` include the mandatory `contentType` and `messageDigest` attributes,
+plus the `signingCertificateV2` attribute (RFC 5035) that binds this `SignerInfo` to a specific certificate,
+preventing certificate substitution attacks. The signature algorithm is `ecdsa-with-SHA384` (OID 1.2.840.10045.4.3.3).
 
-**SignerInfo #2 (Post-Quantum)**: The ML-DSA-65 signature over the same `TSTInfo`. Structurally identical to SignerInfo #1 except that it references the ML-DSA TSA certificate and uses `id-ml-dsa-65` (OID 2.16.840.1.101.3.4.3.18) as the signature algorithm. The signature value is approximately 3,309 bytes -- the standard output of ML-DSA-65 signing. Because the ML-DSA-65 signature is produced via 3-of-5 threshold signing (see [Quantum-Safe Threshold Cryptography](03-quantum-safe-threshold-crypto.md)), the output is indistinguishable from a single-signer ML-DSA-65 signature.
+**SignerInfo #2 (Post-Quantum)**: The ML-DSA-65 signature over the same `TSTInfo`.
+Structurally identical to SignerInfo #1 except that it references the ML-DSA TSA certificate
+and uses `id-ml-dsa-65` (OID 2.16.840.1.101.3.4.3.18) as the signature algorithm.
+The signature value is approximately 3,309 bytes -- the standard output of ML-DSA-65 signing.
+Because the ML-DSA-65 signature is produced via 3-of-5 threshold signing
+(see [Quantum-Safe Threshold Cryptography](03-quantum-safe-threshold-crypto.md)),
+the output is indistinguishable from a single-signer ML-DSA-65 signature.
 
 ### Signed Attributes
 
@@ -387,13 +437,16 @@ Both `SignerInfo` entries contain the same set of signed attributes, which are D
 | `messageDigest` | 1.2.840.113549.1.9.4 | SHA-384 hash of the DER-encoded `TSTInfo` |
 | `signingCertificateV2` | 1.2.840.113549.1.9.16.2.47 | `ESSCertIDv2` containing the SHA-256 hash of the respective TSA certificate |
 
-The `signingCertificateV2` attribute is critical: it binds each `SignerInfo` to a specific certificate, ensuring that an attacker cannot substitute a different certificate with the same public key. Each `SignerInfo` references a different certificate (ECDSA or ML-DSA), which is correct behavior for a dual-signature scheme.
+The `signingCertificateV2` attribute is critical: it binds each `SignerInfo` to a specific certificate,
+ensuring that an attacker cannot substitute a different certificate with the same public key.
+Each `SignerInfo` references a different certificate (ECDSA or ML-DSA), which is correct behavior for a dual-signature scheme.
 
 ---
 
 ## 5. Verification Decision Tree
 
-The following flowchart shows the complete decision process for a verifier processing a CC-TSA timestamp token. The flow supports three types of verifiers: classical-only, PQC-aware, and belt-and-suspenders (requiring both).
+The following flowchart shows the complete decision process for a verifier processing a CC-TSA timestamp token.
+The flow supports three types of verifiers: classical-only, PQC-aware, and belt-and-suspenders (requiring both).
 
 ```mermaid
 flowchart TD
@@ -591,15 +644,24 @@ flowchart TD
 
 The key behaviors that ensure backward compatibility:
 
-1. **Multiple SignerInfos are standard CMS**: RFC 5652 Section 5.1 explicitly permits a `SET OF SignerInfo` with multiple entries. This is not a CC-TSA extension -- it is a core CMS feature. Any compliant CMS implementation handles multiple `SignerInfo` entries.
+1. **Multiple SignerInfos are standard CMS**: RFC 5652 Section 5.1 explicitly permits a `SET OF SignerInfo` with multiple entries.
+This is not a CC-TSA extension -- it is a core CMS feature. Any compliant CMS implementation handles multiple `SignerInfo` entries.
 
-2. **Unrecognized algorithms are skipped**: When a classical verifier encounters a `SignerInfo` with `signatureAlgorithm: id-ml-dsa-65`, it does not recognize the OID. Per standard CMS processing, it skips this `SignerInfo` and moves to the next. It does not fail or raise an error.
+2. **Unrecognized algorithms are skipped**: When a classical verifier encounters a `SignerInfo`
+with `signatureAlgorithm: id-ml-dsa-65`, it does not recognize the OID.
+Per standard CMS processing, it skips this `SignerInfo` and moves to the next. It does not fail or raise an error.
 
-3. **ECDSA SignerInfo is fully standard**: SignerInfo #1 uses `ecdsa-with-SHA384`, a universally supported algorithm. The signed attributes, certificate reference, and signature encoding are all standard. A classical verifier processes this entry exactly as it would for any other ECDSA-signed timestamp.
+3. **ECDSA SignerInfo is fully standard**: SignerInfo #1 uses `ecdsa-with-SHA384`, a universally supported algorithm.
+The signed attributes, certificate reference, and signature encoding are all standard.
+A classical verifier processes this entry exactly as it would for any other ECDSA-signed timestamp.
 
-4. **No modification needed**: Libraries such as OpenSSL, Bouncy Castle, Go `crypto/pkcs7`, and Python `asn1crypto` all handle multiple `SignerInfo` entries and unrecognized algorithms correctly. CC-TSA tokens are verified by these libraries without any patches or configuration changes.
+4. **No modification needed**: Libraries such as OpenSSL, Bouncy Castle, Go `crypto/pkcs7`, and Python `asn1crypto`
+all handle multiple `SignerInfo` entries and unrecognized algorithms correctly.
+CC-TSA tokens are verified by these libraries without any patches or configuration changes.
 
-5. **Token is slightly larger**: The ML-DSA-65 signature (~3.3 KB) and ML-DSA certificate (~3.5 KB) add approximately 6.8 KB to the token. This does not affect ASN.1 parsing or CMS processing -- it simply means more bytes are read and skipped. See [Section 8](#8-token-size-analysis) for a detailed size breakdown.
+5. **Token is slightly larger**: The ML-DSA-65 signature (~3.3 KB) and ML-DSA certificate (~3.5 KB) add approximately 6.8 KB to the token.
+This does not affect ASN.1 parsing or CMS processing -- it simply means more bytes are read and skipped.
+See [Section 8](#8-token-size-analysis) for a detailed size breakdown.
 
 ### PQC-Aware Verifiers
 
@@ -648,11 +710,20 @@ flowchart LR
     style Phase3 fill:#fce4ec,stroke:#E91E63,stroke-width:2px
 ```
 
-**Phase 1 -- Today**: CC-TSA issues hybrid tokens with both ECDSA and ML-DSA signatures. All existing verifiers validate the ECDSA signature and ignore the ML-DSA signature (unrecognized algorithm). The ML-DSA signature is "future-proofing" -- it is present in the token but not yet relied upon.
+**Phase 1 -- Today**: CC-TSA issues hybrid tokens with both ECDSA and ML-DSA signatures.
+All existing verifiers validate the ECDSA signature and ignore the ML-DSA signature (unrecognized algorithm).
+The ML-DSA signature is "future-proofing" -- it is present in the token but not yet relied upon.
 
-**Phase 2 -- When PQC verifiers mature**: As verification libraries add ML-DSA-65 support, verifiers begin checking both signatures. Critically, no re-stamping of existing documents is needed. Tokens issued in Phase 1 already contain the ML-DSA signature, and verifiers in Phase 2 can retroactively verify it. This is the key advantage of the dual-signature approach over a sequential "migrate later" strategy.
+**Phase 2 -- When PQC verifiers mature**: As verification libraries add ML-DSA-65 support,
+verifiers begin checking both signatures. Critically, no re-stamping of existing documents is needed.
+Tokens issued in Phase 1 already contain the ML-DSA signature, and verifiers in Phase 2 can retroactively verify it.
+This is the key advantage of the dual-signature approach over a sequential "migrate later" strategy.
 
-**Phase 3 -- When quantum computers threaten ECDSA**: If a cryptographically relevant quantum computer becomes available, the ECDSA signature in old tokens becomes untrustworthy (an attacker could forge ECDSA signatures). However, the ML-DSA-65 signature -- already present in every token issued since Phase 1 -- remains valid and provides continued assurance that the timestamp was issued by the CC-TSA at the stated time. No retroactive action is needed for the CC-TSA's timestamps to remain verifiable in a post-quantum world.
+**Phase 3 -- When quantum computers threaten ECDSA**: If a cryptographically relevant quantum computer becomes available,
+the ECDSA signature in old tokens becomes untrustworthy (an attacker could forge ECDSA signatures).
+However, the ML-DSA-65 signature -- already present in every token issued since Phase 1 -- remains valid
+and provides continued assurance that the timestamp was issued by the CC-TSA at the stated time.
+No retroactive action is needed for the CC-TSA's timestamps to remain verifiable in a post-quantum world.
 
 ---
 
@@ -670,27 +741,32 @@ Accuracy ::= SEQUENCE {
 }
 ```
 
-Per RFC 3161 Section 2.4.2, the true time of the timestamp is guaranteed to be within `[genTime - accuracy, genTime + accuracy]`. A verifier should interpret this as: "The actual UTC time at which the TSA created this token is within 50 milliseconds of the stated `genTime`."
+Per RFC 3161 Section 2.4.2, the true time of the timestamp is guaranteed to be within
+`[genTime - accuracy, genTime + accuracy]`. A verifier should interpret this as:
+"The actual UTC time at which the TSA created this token is within 1 second of the stated `genTime`."
 
-### CC-TSA Accuracy: 50ms
+### CC-TSA Accuracy: 1 Second
 
-CC-TSA sets the `accuracy` field to `{seconds: 0, millis: 50, micros: 0}`, representing a maximum deviation of 50 milliseconds from UTC.
+CC-TSA sets the `accuracy` field to `{seconds: 1, millis: 0, micros: 0}`,
+representing a maximum deviation of 1 second from UTC.
+This conservative value reflects that timestamping is not latency-sensitive work
+and provides generous margin for all operating conditions.
 
 ```mermaid
 flowchart TD
     subgraph Sources["Time Uncertainty Sources"]
         direction TB
         NTS_SRC["NTS/NTP Network Latency<br/>Contribution: +/- 1ms<br/>Network round-trip to<br/>4 NTS time sources"]
-        TSC_SRC["SecureTSC Interpolation<br/>Contribution: less than 1 microsecond<br/>Hardware counter between<br/>NTP queries"]
-        TRI_SRC["TriHaRd Validation<br/>Contribution: +/- 50 microseconds<br/>Cross-node BFT consensus<br/>deviation threshold"]
-        SW_SRC["Software Overhead<br/>Contribution: less than 10 microseconds<br/>Processing time from<br/>time read to signing"]
+        TSC_SRC["SecureTSC Interpolation<br/>Contribution: negligible<br/>Hardware counter between<br/>NTP queries"]
+        TRI_SRC["TriHaRd Validation<br/>Contribution: +/- 100ms<br/>Cross-node BFT consensus<br/>deviation threshold"]
+        SW_SRC["Software Overhead<br/>Contribution: negligible<br/>Processing time from<br/>time read to signing"]
     end
 
-    ACTUAL["Actual Measured Precision<br/>~1.2 ms<br/>(dominated by NTP)"]
+    ACTUAL["Actual Precision<br/>~100 ms<br/>(dominated by TriHaRd threshold)"]
 
-    MARGIN["Safety Margin<br/>~40x buffer over<br/>measured precision"]
+    MARGIN["Safety Margin<br/>~10x buffer over<br/>TriHaRd threshold"]
 
-    STATED["Stated Accuracy<br/>50 ms<br/>(in TSTInfo accuracy field)"]
+    STATED["Stated Accuracy<br/>1 second<br/>(in TSTInfo accuracy field)"]
 
     NTS_SRC --> ACTUAL
     TSC_SRC --> ACTUAL
@@ -708,26 +784,32 @@ flowchart TD
 
 | Source | Contribution | Notes |
 |---|---|---|
-| NTS/NTP network latency | +/- 1ms | Network round-trip to NTS sources; dominant uncertainty |
-| SecureTSC interpolation | < 1 microsecond | Hardware counter between NTP queries; sub-nanosecond resolution |
-| TriHaRd cross-node validation | +/- 50 microseconds | BFT consensus threshold; nodes exceeding this are excluded |
-| Software overhead | < 10 microseconds | Processing time from clock read to signature |
-| **Actual measured precision** | **~1.2 ms** | **Dominated by NTP network latency** |
-| **Stated accuracy** | **50 ms** | **Conservative margin for safety** |
+| NTS/NTP network latency | ±1ms | Network round-trip to NTS sources |
+| SecureTSC interpolation | Negligible | Hardware counter between NTP queries |
+| TriHaRd cross-node validation | ±100ms | BFT consensus threshold; nodes exceeding this are excluded |
+| Software overhead | Negligible | Processing time from clock read to signature |
+| **Actual precision** | **~100 ms** | **Dominated by TriHaRd consensus threshold** |
+| **Stated accuracy** | **1 second** | **Conservative margin for safety** |
 
-For a detailed breakdown of the time trust chain that produces this precision, see [Confidential Computing & Time](02-confidential-computing-and-time.md), Sections 3 (Time Trust Chain) and 8 (Precision Budget).
+For a detailed breakdown of the time trust chain that produces this precision,
+see [Confidential Computing & Time](02-confidential-computing-and-time.md), Sections 3 (Time Trust Chain) and 8 (Precision Budget).
 
-### Why 50ms (and Not Tighter)?
+### Why 1 Second?
 
-The 50ms accuracy field provides approximately a 40x safety margin over the measured precision of ~1.2ms. This conservatism is intentional:
+The 1-second accuracy field provides approximately a 10x safety margin over the TriHaRd consensus threshold of 100ms. This conservatism is intentional:
 
-1. **Rare NTP outliers**: While typical NTP precision is ~1ms, rare network congestion events or routing changes can cause NTP responses with higher-than-normal delays. The 50ms margin absorbs these outliers without producing timestamps that violate the stated accuracy.
+1. **Timestamping is not latency-sensitive**: RFC 3161 timestamps prove that data existed before a certain time.
+   For the vast majority of use cases — document signing, code signing, compliance logging —
+   1-second accuracy is more than sufficient.
 
-2. **Network congestion buffer**: In multi-cloud deployments (see [Architecture Overview](01-architecture-overview.md), Section 6.2), cross-provider network latency can spike during congestion events. The 50ms margin ensures the accuracy claim remains valid even during transient network degradation.
+2. **Industry alignment**: Many production TSAs claim 1-second accuracy. The CC-TSA's 1-second claim aligns with industry norms, avoiding over-specification that could be invalidated under adverse conditions.
 
-3. **Industry alignment**: Many production TSAs claim 1-second accuracy. The CC-TSA's 50ms claim is 20x tighter than the industry norm while still being conservatively achievable. This positions CC-TSA as a high-precision TSA without making claims that could be invalidated under adverse conditions.
+3. **Operational margin**: The generous margin absorbs rare NTP outliers, cross-provider network congestion spikes, and transient degradation without producing timestamps that violate the stated accuracy.
 
-4. **Future tightening**: The accuracy field can be reduced in future deployments that use co-located NTS sources (reducing NTP latency to < 100 microseconds) or PTP (IEEE 1588, providing sub-microsecond accuracy). Reducing the stated accuracy is a non-breaking change -- it only improves the guarantee for verifiers.
+4. **Future tightening**: The accuracy field can be reduced in future deployments if tighter precision is required.
+   Reducing the stated accuracy is a non-breaking change — it only improves the guarantee for verifiers.
+   The underlying hardware (SecureTSC) provides sub-millisecond precision,
+   so tightening is straightforward if a use case demands it.
 
 ---
 
@@ -786,9 +868,15 @@ CC-TSA hybrid tokens are approximately **2.8x larger** than classical-only token
 
 **If size is critical**, two strategies can reduce the per-token overhead:
 
-1. **Omit the ML-DSA certificate from individual tokens**: If the verifier has the ML-DSA TSA certificate cached or available via a trust store, it does not need to be included in every token. This reduces the per-token size to approximately **7.1 KB** (saving ~3.5 KB). The `certificates` field in `SignedData` is optional per RFC 5652 -- omitting certain certificates is standard practice when the verifier is expected to obtain them out-of-band.
+1. **Omit the ML-DSA certificate from individual tokens**: If the verifier has the ML-DSA TSA certificate cached or available
+via a trust store, it does not need to be included in every token.
+This reduces the per-token size to approximately **7.1 KB** (saving ~3.5 KB).
+The `certificates` field in `SignedData` is optional per RFC 5652 --
+omitting certain certificates is standard practice when the verifier is expected to obtain them out-of-band.
 
-2. **Omit the CA chain from individual tokens**: Similarly, if the CA certificates are pre-distributed to verifiers, they can be omitted from individual tokens, saving approximately 2 KB per token. This reduces the total to approximately **5.1 KB** with both certificates omitted, or **8.4 KB** with only the CA chain omitted.
+2. **Omit the CA chain from individual tokens**: Similarly, if the CA certificates are pre-distributed to verifiers,
+they can be omitted from individual tokens, saving approximately 2 KB per token.
+This reduces the total to approximately **5.1 KB** with both certificates omitted, or **8.4 KB** with only the CA chain omitted.
 
 ---
 
@@ -819,7 +907,10 @@ Content-Length: <length>
 <DER-encoded TimeStampResp>
 ```
 
-The response body is the DER-encoded `TimeStampResp`. The HTTP status code is `200 OK` for all RFC 3161 responses, including rejected timestamp requests -- the rejection is communicated in the `PKIStatusInfo` within the response body, not in the HTTP status code. This is per RFC 3161: the HTTP layer is a transport mechanism, and the application-level status is in the RFC 3161 response structure.
+The response body is the DER-encoded `TimeStampResp`. The HTTP status code is `200 OK` for all RFC 3161 responses,
+including rejected timestamp requests -- the rejection is communicated in the `PKIStatusInfo` within the response body,
+not in the HTTP status code. This is per RFC 3161: the HTTP layer is a transport mechanism,
+and the application-level status is in the RFC 3161 response structure.
 
 Non-200 HTTP status codes are used only for transport-layer errors:
 
@@ -834,7 +925,9 @@ Non-200 HTTP status codes are used only for transport-layer errors:
 
 ### CC-TSA Transport Requirements and Additions
 
-**TLS 1.3 Required**: All connections to CC-TSA must use HTTPS with TLS 1.3. Plaintext HTTP connections are rejected. The TLS certificate for the HTTPS endpoint is separate from the TSA signing certificates -- it is a standard web server certificate issued by a public CA for the TSA's domain name.
+**TLS 1.3 Required**: All connections to CC-TSA must use HTTPS with TLS 1.3. Plaintext HTTP connections are rejected.
+The TLS certificate for the HTTPS endpoint is separate from the TSA signing certificates --
+it is a standard web server certificate issued by a public CA for the TSA's domain name.
 
 **Operational Endpoints**: In addition to the RFC 3161 `/tsa` endpoint, CC-TSA exposes optional operational endpoints for load balancer integration and transparency:
 
@@ -875,9 +968,14 @@ flowchart LR
 }
 ```
 
-The load balancer removes nodes from rotation when `status` is not `healthy`, when `attested` is `false`, when `time_synced` is `false`, or when `quorum_available` is `false`. See [Architecture Overview](01-architecture-overview.md), Section 2.2 for load balancer configuration details.
+The load balancer removes nodes from rotation when `status` is not `healthy`, when `attested` is `false`,
+when `time_synced` is `false`, or when `quorum_available` is `false`.
+See [Architecture Overview](01-architecture-overview.md), Section 2.2 for load balancer configuration details.
 
-**`/attestation` endpoint**: Returns the node's current AMD SEV-SNP attestation report in a structured format. This allows clients or auditors to verify out-of-band that the node is running the expected CC-TSA code in a genuine confidential VM. The attestation report can be verified independently against AMD's VCEK certificate chain without trusting the CC-TSA operator. See [Confidential Computing & Time](02-confidential-computing-and-time.md), Section 7 for the attestation boot chain.
+**`/attestation` endpoint**: Returns the node's current AMD SEV-SNP attestation report in a structured format.
+This allows clients or auditors to verify out-of-band that the node is running the expected CC-TSA code in a genuine confidential VM.
+The attestation report can be verified independently against AMD's VCEK certificate chain without trusting the CC-TSA operator.
+See [Confidential Computing & Time](02-confidential-computing-and-time.md), Section 7 for the attestation boot chain.
 
 ---
 

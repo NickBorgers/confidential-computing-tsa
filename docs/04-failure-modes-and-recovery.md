@@ -9,7 +9,12 @@
 > - [Operations and Deployment](05-operations-and-deployment.md) — deployment procedures, monitoring, alerting
 > - [Threat Model](07-threat-model.md) — adversarial scenarios and mitigations
 
-This document defines every failure scenario the CC-TSA system can encounter, the impact of each, and the exact recovery procedures to follow. The CC-TSA uses a **3-of-5 threshold signing** configuration: 5 AMD SEV-SNP enclave nodes each hold one key share, and a minimum of 3 nodes must be online to produce a valid timestamp signature. Key shares are **ephemeral** — they exist only in enclave memory and are never persisted to disk or sealed in external storage. If a node is lost, its key share is gone. Recovery depends entirely on how many nodes still hold shares in memory: if the threshold is maintained, the cluster continues signing; if quorum is lost, a new Distributed Key Generation (DKG) ceremony produces a new signing key.
+This document defines every failure scenario the CC-TSA system can encounter, the impact of each, and the exact recovery procedures to follow.
+The CC-TSA uses a **3-of-5 threshold signing** configuration: 5 AMD SEV-SNP enclave nodes each hold one key share,
+and a minimum of 3 nodes must be online to produce a valid timestamp signature. Key shares are **ephemeral** —
+they exist only in enclave memory and are never persisted to disk or sealed in external storage. If a node is lost, its key share is gone.
+Recovery depends entirely on how many nodes still hold shares in memory: if the threshold is maintained, the cluster continues signing;
+if quorum is lost, a new Distributed Key Generation (DKG) ceremony produces a new signing key.
 
 ---
 
@@ -49,7 +54,12 @@ flowchart TD
     style KS6 fill:#8b0000,color:#fff
 ```
 
-**Key takeaway**: Key shares exist **only in enclave memory** — they are never persisted to disk. When a node is lost, its share is gone. The critical question is always: **how many nodes still hold shares?** If ≥3 nodes retain their shares, signing continues and new nodes can receive shares via redistribution. If <3 nodes retain shares, the signing key is effectively lost and a new DKG ceremony is required. This is a designed-in property of the ephemeral key model: stronger trust guarantees (no persistent key material to attack) in exchange for key regeneration when quorum is lost.
+**Key takeaway**: Key shares exist **only in enclave memory** — they are never persisted to disk. When a node is lost, its share is gone.
+The critical question is always: **how many nodes still hold shares?** If ≥3 nodes retain their shares,
+signing continues and new nodes can receive shares via redistribution. If <3 nodes retain shares,
+the signing key is effectively lost and a new DKG ceremony is required.
+This is a designed-in property of the ephemeral key model: stronger trust guarantees (no persistent key material to attack)
+in exchange for key regeneration when quorum is lost.
 
 ---
 
@@ -104,7 +114,9 @@ flowchart TD
 2. **Provision replacement node** — Boot a new AMD SEV-SNP confidential VM. This can be in the same AZ, a different AZ, or even a different provider, as long as AMD SEV-SNP is supported.
 3. **Deploy immutable software image** — Install the **exact same application image** that all other nodes are running. The launch measurement must match the measurement bound to the current TSA certificate.
 4. **Mutual attestation** — The new node and the existing cluster nodes exchange attestation reports, verifying they are all running the same software in genuine AMD SEV-SNP enclaves.
-5. **Share redistribution** — The existing 4 nodes collaborate to issue a new key share to the replacement node via the threshold redistribution protocol (see [Quantum-Safe Threshold Crypto](03-quantum-safe-threshold-crypto.md)). This requires ≥3 of the 4 remaining nodes to participate. The new share is generated without ever reconstructing the full signing key.
+5. **Share redistribution** — The existing 4 nodes collaborate to issue a new key share to the replacement node
+via the threshold redistribution protocol (see [Quantum-Safe Threshold Crypto](03-quantum-safe-threshold-crypto.md)).
+This requires ≥3 of the 4 remaining nodes to participate. The new share is generated without ever reconstructing the full signing key.
 6. **Cluster returns to Healthy** — The replacement node now holds a valid share in enclave memory. The cluster is back to 5/5 nodes with full fault tolerance.
 
 ### Recovery Time
@@ -143,7 +155,8 @@ Recovery follows the same tiered procedures as single node failure (Section 2), 
 
 1. **Priority**: Recover at least **1 node** as fast as possible to restore fault tolerance margin (moving from CRITICAL to DEGRADED).
 2. **Parallel recovery**: If possible, initiate recovery for both nodes simultaneously.
-3. **Regional failure**: If both nodes are in the same AZ or region, this indicates a regional failure. Activate cold standby nodes in a **different** AZ or region rather than waiting for the failed region to recover.
+3. **Regional failure**: If both nodes are in the same AZ or region, this indicates a regional failure.
+Activate cold standby nodes in a **different** AZ or region rather than waiting for the failed region to recover.
 4. After at least 1 node is recovered (cluster returns to DEGRADED), continue recovering the second node at normal priority.
 
 ### Monitoring Escalation
@@ -167,7 +180,10 @@ See [Operations and Deployment](05-operations-and-deployment.md) for detailed al
 - **No timestamps can be issued** until a new signing key is generated
 - **The signing key is effectively lost** — with fewer than 3 nodes holding shares in memory, no quorum can be formed and the remaining shares cannot produce signatures
 
-This is a service outage, but it is the **expected cost of the ephemeral key model**. The tradeoff is explicit: stronger trust guarantees (no persistent key material that could be attacked at rest) in exchange for key regeneration when quorum is lost. Clients submitting timestamp requests will receive errors. Upstream systems that depend on timestamping should have retry logic or queue requests for later processing.
+This is a service outage, but it is the **expected cost of the ephemeral key model**. The tradeoff is explicit:
+stronger trust guarantees (no persistent key material that could be attacked at rest) in exchange for key regeneration when quorum is lost.
+Clients submitting timestamp requests will receive errors.
+Upstream systems that depend on timestamping should have retry logic or queue requests for later processing.
 
 ### Key Material Status
 
@@ -178,7 +194,8 @@ The signing key is **irrecoverably lost** when fewer than 3 nodes retain their s
 - With <3 shares remaining, the threshold signing protocol cannot produce a valid signature
 - The remaining 1–2 shares are mathematically insufficient to reconstruct or use the key
 
-**This is not a catastrophe — it is the designed-in consequence of the ephemeral model.** The system eliminates the entire attack surface of persistent key storage in exchange for accepting that quorum loss requires key regeneration.
+**This is not a catastrophe — it is the designed-in consequence of the ephemeral model.** The system eliminates the entire attack surface
+of persistent key storage in exchange for accepting that quorum loss requires key regeneration.
 
 ### Recovery
 
@@ -186,10 +203,12 @@ Recovery requires a **new DKG ceremony** to generate a fresh signing key, follow
 
 1. **Provision or recover nodes** — Ensure at least 5 AMD SEV-SNP nodes are available (all running the same immutable software image).
 2. **Mutual attestation** — All nodes verify each other's attestation reports, confirming they run the same software in genuine SEV-SNP enclaves.
-3. **New DKG ceremony** — Run Distributed Key Generation across all 5 nodes (see [Quantum-Safe Threshold Crypto](03-quantum-safe-threshold-crypto.md)). This produces a new threshold signing key with fresh shares distributed to each node.
+3. **New DKG ceremony** — Run Distributed Key Generation across all 5 nodes (see [Quantum-Safe Threshold Crypto](03-quantum-safe-threshold-crypto.md)).
+This produces a new threshold signing key with fresh shares distributed to each node.
 4. **Obtain new certificate** — Request a new X.509 TSA certificate from the Certificate Authority for the new public key. The new certificate binds the same software measurement to the new key.
 5. **Resume signing** — The cluster begins issuing timestamps with the new key and new certificate.
-6. **Old timestamps remain valid** — Timestamps signed with the old key remain valid. They were signed during the old certificate's validity period, and the old certificate (and its chain) still verifies them.
+6. **Old timestamps remain valid** — Timestamps signed with the old key remain valid.
+They were signed during the old certificate's validity period, and the old certificate (and its chain) still verifies them.
 
 ### Recovery Time
 
@@ -207,7 +226,9 @@ Recovery requires a **new DKG ceremony** to generate a fresh signing key, follow
 
 ### Scenario
 
-All 5 nodes are simultaneously offline. With nodes distributed across Azure, GCP, and a third provider (see Section 7), this requires simultaneous failures at multiple independent cloud providers. While extremely unlikely, the system is designed for recovery from this scenario.
+All 5 nodes are simultaneously offline. With nodes distributed across Azure, GCP, and a third provider (see Section 7),
+this requires simultaneous failures at multiple independent cloud providers.
+While extremely unlikely, the system is designed for recovery from this scenario.
 
 ### Key Material Status
 
@@ -218,7 +239,8 @@ All 5 nodes are simultaneously offline. With nodes distributed across Azure, GCP
 - The signing key is irrecoverably lost (by design)
 - Recovery requires generating a **new signing key** via DKG and obtaining a **new certificate**
 
-This is the designed-in cost of the ephemeral model. The benefit is clear: there is no persistent key material anywhere that could be attacked, stolen, or manipulated by operators, cloud providers, or other adversaries.
+This is the designed-in cost of the ephemeral model. The benefit is clear: there is no persistent key material anywhere
+that could be attacked, stolen, or manipulated by operators, cloud providers, or other adversaries.
 
 ### 5-Step Recovery Procedure
 
@@ -260,15 +282,25 @@ sequenceDiagram
 
 **Step-by-step detail**:
 
-1. **Assess**: Determine the root cause of the complete outage. Is it a multi-provider outage? A coordinated attack? An operational error? The root cause determines which providers and regions to use for recovery and whether the same software image should be used (if the outage was caused by a software bug, a new image with a fix may be needed — which means a new measurement and a fresh identity).
+1. **Assess**: Determine the root cause of the complete outage. Is it a multi-provider outage? A coordinated attack? An operational error?
+The root cause determines which providers and regions to use for recovery and whether the same software image should be used
+(if the outage was caused by a software bug, a new image with a fix may be needed — which means a new measurement and a fresh identity).
 
-2. **Boot all 5 nodes with the same immutable software image**: Provision 5 new AMD SEV-SNP confidential VMs, distributed across providers per the multi-provider strategy (Section 7). Deploy the **same immutable application image** to all nodes. If reusing the previous image, the launch measurement will be identical to the previous deployment.
+2. **Boot all 5 nodes with the same immutable software image**: Provision 5 new AMD SEV-SNP confidential VMs,
+distributed across providers per the multi-provider strategy (Section 7). Deploy the **same immutable application image** to all nodes.
+If reusing the previous image, the launch measurement will be identical to the previous deployment.
 
-3. **Mutual attestation**: Each node's AMD Secure Processor generates a fresh attestation report. Nodes exchange attestation reports and verify that all peers are running the same software (same launch measurement) in genuine AMD SEV-SNP enclaves. This ensures no compromised or incorrect node can participate in the DKG.
+3. **Mutual attestation**: Each node's AMD Secure Processor generates a fresh attestation report.
+Nodes exchange attestation reports and verify that all peers are running the same software (same launch measurement)
+in genuine AMD SEV-SNP enclaves. This ensures no compromised or incorrect node can participate in the DKG.
 
-4. **Run DKG ceremony**: Execute a new Distributed Key Generation ceremony across all 5 nodes (see [Quantum-Safe Threshold Crypto](03-quantum-safe-threshold-crypto.md)). This produces a new threshold signing key with fresh shares distributed to each node in enclave memory. The old signing key is unrelated to the new one — this is a completely fresh key.
+4. **Run DKG ceremony**: Execute a new Distributed Key Generation ceremony across all 5 nodes
+(see [Quantum-Safe Threshold Crypto](03-quantum-safe-threshold-crypto.md)). This produces a new threshold signing key with fresh shares
+distributed to each node in enclave memory. The old signing key is unrelated to the new one — this is a completely fresh key.
 
-5. **Obtain new certificate and resume signing**: Submit a Certificate Signing Request (CSR) for the new public key to the Certificate Authority. The CA issues a new X.509 TSA certificate that binds the software measurement to the new key. Once the certificate is installed, the cluster begins issuing timestamps.
+5. **Obtain new certificate and resume signing**: Submit a Certificate Signing Request (CSR) for the new public key
+to the Certificate Authority. The CA issues a new X.509 TSA certificate that binds the software measurement to the new key.
+Once the certificate is installed, the cluster begins issuing timestamps.
 
 ### Recovery Time
 
@@ -298,12 +330,14 @@ After recovery, verify:
 
 ### When Does This Happen?
 
-Key regeneration is required whenever **fewer than 3 nodes retain their key shares in memory**. Since shares are ephemeral (in-memory only), any node failure permanently destroys that node's share. Key regeneration is triggered when cumulative node losses cross the threshold boundary:
+Key regeneration is required whenever **fewer than 3 nodes retain their key shares in memory**. Since shares are ephemeral (in-memory only),
+any node failure permanently destroys that node's share. Key regeneration is triggered when cumulative node losses cross the threshold boundary:
 
 - **1–2 nodes lost**: Signing continues. Shares can be redistributed to replacement nodes (see Section 2).
 - **3+ nodes lost**: Quorum is lost. The signing key is effectively gone. A new DKG ceremony is required.
 
-This is a **designed-in property** of the ephemeral key model, not a rare disaster. The system trades persistent key availability for a fundamentally stronger security posture: there is no stored key material that operators, cloud providers, or attackers could access at rest.
+This is a **designed-in property** of the ephemeral key model, not a rare disaster. The system trades persistent key availability
+for a fundamentally stronger security posture: there is no stored key material that operators, cloud providers, or attackers could access at rest.
 
 ### What Triggers Key Regeneration
 
@@ -322,7 +356,9 @@ This is a **designed-in property** of the ephemeral key model, not a rare disast
 3. **New DKG ceremony** — Generate a new threshold signing key with fresh shares (see [Quantum-Safe Threshold Crypto](03-quantum-safe-threshold-crypto.md)).
 4. **New certificate** — Obtain a new X.509 TSA certificate from the CA for the new public key.
 5. **Resume signing** — Begin issuing timestamps with the new key and certificate.
-6. **Old timestamps remain valid** — Timestamps signed with the old key remain valid. They were signed during the old certificate's validity period, and the old certificate (and its chain) still verifies them. Relying parties can continue to validate old timestamps using the old certificate.
+6. **Old timestamps remain valid** — Timestamps signed with the old key remain valid.
+They were signed during the old certificate's validity period, and the old certificate (and its chain) still verifies them.
+Relying parties can continue to validate old timestamps using the old certificate.
 
 ### Key Loss vs. Key Compromise
 
@@ -378,9 +414,15 @@ flowchart TD
 | Above-threshold response | Redistribute shares to replacement nodes | Proactive share refresh (same key, new shares) |
 | Below-threshold response | New DKG + new certificate | Revoke + new DKG + new certificate + forensic investigation |
 
-**Proactive share refresh** (for sub-threshold compromise) is a powerful tool: it generates an entirely new set of shares for the **same** signing key. The old shares — including the compromised ones — become mathematically useless. The public key and certificate remain unchanged. See [Quantum-Safe Threshold Crypto](03-quantum-safe-threshold-crypto.md) for the share refresh protocol.
+**Proactive share refresh** (for sub-threshold compromise) is a powerful tool: it generates an entirely new set of shares
+for the **same** signing key. The old shares — including the compromised ones — become mathematically useless.
+The public key and certificate remain unchanged.
+See [Quantum-Safe Threshold Crypto](03-quantum-safe-threshold-crypto.md) for the share refresh protocol.
 
-**Note on the ephemeral model and compromise risk**: Because key shares exist only in enclave memory (protected by AMD SEV-SNP hardware encryption), the attack surface for key compromise is limited to runtime extraction from hardware-encrypted enclave memory. There are no sealed blobs on disk, no KMS-wrapped copies, and no backups that could be targeted at rest. This significantly narrows the compromise scenarios compared to a model with persistent key storage.
+**Note on the ephemeral model and compromise risk**: Because key shares exist only in enclave memory
+(protected by AMD SEV-SNP hardware encryption), the attack surface for key compromise is limited to runtime extraction
+from hardware-encrypted enclave memory. There are no sealed blobs on disk, no KMS-wrapped copies, and no backups
+that could be targeted at rest. This significantly narrows the compromise scenarios compared to a model with persistent key storage.
 
 ---
 
@@ -388,7 +430,8 @@ flowchart TD
 
 ### Distribution Strategy
 
-The CC-TSA distributes its 5 nodes across 3 cloud providers such that **no single provider hosts a threshold number (3) of nodes**. This means a complete outage of any single cloud provider cannot halt signing.
+The CC-TSA distributes its 5 nodes across 3 cloud providers such that **no single provider hosts a threshold number (3) of nodes**.
+This means a complete outage of any single cloud provider cannot halt signing.
 
 | Provider | Nodes Hosted | Max Simultaneous Loss | Cluster Impact |
 |---|---|---|---|
@@ -449,7 +492,8 @@ flowchart TB
     style SC_RESULT fill:#660000,color:#fff
 ```
 
-**Scenario C** (Azure + GCP simultaneous outage) is the only single-point-of-failure concern, and it requires the **simultaneous failure of two major, independent cloud providers**. In practice, major cloud provider outages are:
+**Scenario C** (Azure + GCP simultaneous outage) is the only single-point-of-failure concern,
+and it requires the **simultaneous failure of two major, independent cloud providers**. In practice, major cloud provider outages are:
 - **Rare**: Each provider has multiple nines of availability.
 - **Independent**: Azure and GCP run on entirely separate infrastructure, networks, and operational teams.
 - **Regional, not global**: Most outages affect specific regions, not the entire provider. Distributing nodes across regions within each provider further reduces correlation.
@@ -531,9 +575,12 @@ Trusted time is a core property of the CC-TSA. Clock drift can occur when a node
 
 The CC-TSA uses two complementary mechanisms to detect clock drift (see [Confidential Computing and Time](02-confidential-computing-and-time.md) for full details):
 
-1. **TriHaRd protocol**: Each node continuously compares its clock against the **peer median** of all other nodes. The tolerance threshold is **50 microseconds**. A node whose clock deviates by more than 50us from the peer median is flagged as drifting.
+1. **TriHaRd protocol**: Each node continuously compares its clock against the **peer median** of all other nodes.
+   The tolerance threshold is **100 milliseconds**.
+   A node whose clock deviates by more than 100ms from the peer median is flagged as drifting.
 
-2. **NTS cross-validation**: Each node independently validates its AMD SecureTSC hardware clock against multiple NTS-authenticated NTP time sources. If the hardware clock and the NTS sources disagree beyond a configurable threshold, the node flags itself.
+2. **NTS cross-validation**: Each node independently validates its AMD SecureTSC hardware clock against multiple NTS-authenticated NTP time sources.
+If the hardware clock and the NTS sources disagree beyond a configurable threshold, the node flags itself.
 
 ### Impact
 
@@ -555,7 +602,8 @@ The CC-TSA uses two complementary mechanisms to detect clock drift (see [Confide
 
 ### Clock Drift vs. Node Failure
 
-Clock drift is distinct from a node failure in an important way: the node is still running and communicating, but it cannot be trusted for timestamping. The node's key share is still valid and can be used once the clock is corrected. This means:
+Clock drift is distinct from a node failure in an important way: the node is still running and communicating,
+but it cannot be trusted for timestamping. The node's key share is still valid and can be used once the clock is corrected. This means:
 
 - Clock drift does **not** trigger the node replacement or share refresh procedures.
 - Recovery is typically automatic — the TriHaRd protocol and NTS resync handle it.
@@ -565,7 +613,11 @@ Clock drift is distinct from a node failure in an important way: the node is sti
 
 ## 10. Attestation Failure
 
-Attestation is the mechanism by which nodes prove to each other (via mutual attestation) that they are running the correct, immutable software in genuine AMD SEV-SNP confidential VMs. Under the immutable software model, the launch measurement **never changes** during the lifetime of a signing key — software changes are all-or-nothing key rotation events (see [Operations and Deployment](05-operations-and-deployment.md)). An attestation failure means the node **cannot join or remain in the cluster** and **cannot participate in signing**.
+Attestation is the mechanism by which nodes prove to each other (via mutual attestation) that they are running the correct,
+immutable software in genuine AMD SEV-SNP confidential VMs. Under the immutable software model, the launch measurement **never changes**
+during the lifetime of a signing key — software changes are all-or-nothing key rotation events
+(see [Operations and Deployment](05-operations-and-deployment.md)). An attestation failure means the node **cannot join or remain in the cluster**
+and **cannot participate in signing**.
 
 ### Causes
 
@@ -602,8 +654,10 @@ Under the immutable software model, attestation failures have a narrower set of 
 **For platform firmware changes**:
 
 1. Platform firmware changes (AMD-SP updates by the cloud provider) change the **platform TCB version** but not the **launch measurement**.
-2. The mutual attestation between nodes can be configured to **pin the launch measurement** (which must match exactly) while **accepting a range of platform TCB versions** (allowing firmware updates across nodes).
-3. If the platform TCB version is outside the accepted range, update the cluster's attestation policy to accept the new platform TCB version. This does not affect the software measurement or the signing key.
+2. The mutual attestation between nodes can be configured to **pin the launch measurement** (which must match exactly)
+while **accepting a range of platform TCB versions** (allowing firmware updates across nodes).
+3. If the platform TCB version is outside the accepted range, update the cluster's attestation policy to accept the new platform TCB version.
+This does not affect the software measurement or the signing key.
 4. If the firmware change causes actual issues (e.g., attestation reports are malformed), replace the affected node.
 
 ### Software Changes and Attestation
@@ -667,7 +721,9 @@ The impact depends on how the partition divides the nodes:
 | 1 / 4 | 1 node (< threshold) | 4 nodes (> threshold) | **Group B only** | No split-brain — only one group meets threshold |
 | 3 / 2 | 3 nodes (= threshold) | 2 nodes (< threshold) | **Group A only** | No split-brain — only one group meets threshold |
 
-With a 3-of-5 threshold, a **split-brain** (two partitions both signing independently) is **impossible** in a two-way partition. This is because 3 + 3 = 6 > 5; you cannot split 5 nodes into two groups that both have 3 or more. This is a fundamental property of the threshold scheme.
+With a 3-of-5 threshold, a **split-brain** (two partitions both signing independently) is **impossible** in a two-way partition.
+This is because 3 + 3 = 6 > 5; you cannot split 5 nodes into two groups that both have 3 or more.
+This is a fundamental property of the threshold scheme.
 
 ### CC-TSA Partition Handling
 
@@ -677,7 +733,9 @@ The CC-TSA includes additional safeguards beyond the threshold arithmetic:
 
 2. **Mutual attestation check**: Each signing round requires mutual attestation between participating nodes. A partitioned node cannot attest peers it cannot reach.
 
-3. **TriHaRd time validation**: Even if a partition theoretically has enough nodes, the TriHaRd protocol cross-validates time across participating nodes. A partition with skewed clocks (due to loss of NTS connectivity during the partition) will self-exclude until time is validated.
+3. **TriHaRd time validation**: Even if a partition theoretically has enough nodes, the TriHaRd protocol cross-validates time
+across participating nodes. A partition with skewed clocks (due to loss of NTS connectivity during the partition)
+will self-exclude until time is validated.
 
 ### Recovery
 
