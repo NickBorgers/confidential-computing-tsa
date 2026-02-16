@@ -526,6 +526,12 @@ jobs:
       needs.get-context.outputs.reviews_already_passed != 'true' &&
       needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      packages: read
     uses: ./.github/workflows/review-design.yml
     with:
       pr_number: ${{ needs.get-context.outputs.pr_number }}
@@ -552,6 +558,12 @@ jobs:
       needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.config_only != 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      packages: read
     uses: ./.github/workflows/review-code-content.yml
     with:
       pr_number: ${{ needs.get-context.outputs.pr_number }}
@@ -574,6 +586,12 @@ jobs:
       needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.has_rust_code == 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      packages: read
     uses: ./.github/workflows/review-test.yml
     with:
       pr_number: ${{ needs.get-context.outputs.pr_number }}
@@ -594,6 +612,12 @@ jobs:
       needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.config_only != 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      packages: read
     uses: ./.github/workflows/review-crypto.yml
     with:
       pr_number: ${{ needs.get-context.outputs.pr_number }}
@@ -613,6 +637,12 @@ jobs:
       needs.get-context.outputs.reviews_already_passed != 'true' &&
       needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      packages: read
     uses: ./.github/workflows/review-docs.yml
     with:
       pr_number: ${{ needs.get-context.outputs.pr_number }}
@@ -637,6 +667,12 @@ jobs:
       needs.get-context.outputs.reviews_already_passed != 'true' &&
       needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+      packages: read
     uses: ./.github/workflows/review-standards.yml
     with:
       pr_number: ${{ needs.get-context.outputs.pr_number }}
@@ -661,6 +697,12 @@ jobs:
       needs.get-context.outputs.reviews_already_passed != 'true' &&
       needs.get-context.outputs.author_authorized == 'true' &&
       needs.get-context.outputs.tests_passed == 'true'
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+      packages: read
     uses: ./.github/workflows/review-rfc-standards.yml
     with:
       pr_number: ${{ needs.get-context.outputs.pr_number }}
