@@ -1,3 +1,7 @@
+// Many public items in submodules are part of the future API surface
+// (attestation, TSC calibration, threshold signing) but not yet wired up.
+#![allow(dead_code)]
+
 /// CVM Core: Minimal signing oracle for CC-TSA.
 ///
 /// This is the security-critical code that runs inside the AMD SEV-SNP
@@ -8,7 +12,6 @@
 ///   Booting -> TimeSync -> Ready -> Signing
 ///                                    |
 ///                                (on error) -> Degraded
-
 mod attestation;
 mod protocol;
 mod signed_attrs;
@@ -16,7 +19,9 @@ mod signing;
 mod time;
 mod tstinfo;
 
-use protocol::{parse_request, serialize_response, serialize_error_response, ResponseStatus, SignResponse};
+use protocol::{
+    parse_request, serialize_error_response, serialize_response, ResponseStatus, SignResponse,
+};
 use signed_attrs::build_signed_attrs;
 use signing::SigningContext;
 use time::{current_time_ms, format_generalized_time, NtsState};
@@ -119,7 +124,11 @@ fn handle_request(
 }
 
 /// Handle a single connection: read request, process, write response.
-fn handle_connection<S: Read + Write>(mut stream: S, signing_ctx: &SigningContext, nts_state: &NtsState) {
+fn handle_connection<S: Read + Write>(
+    mut stream: S,
+    signing_ctx: &SigningContext,
+    nts_state: &NtsState,
+) {
     // Read request with size limit
     let mut buf = [0u8; MAX_REQUEST_BYTES];
     let n = match stream.read(&mut buf) {
@@ -166,7 +175,10 @@ fn main() {
 
     // In production, bind to vsock. For development, use TCP on localhost.
     // vsock listener: VsockListener::bind(VSOCK_CID_ANY, VSOCK_PORT)
-    eprintln!("listening on vsock port {} (or TCP fallback for development)", VSOCK_PORT);
+    eprintln!(
+        "listening on vsock port {} (or TCP fallback for development)",
+        VSOCK_PORT
+    );
 
     // Development mode: TCP listener for testing without vsock
     let listener = match std::net::TcpListener::bind("127.0.0.1:5000") {
@@ -198,8 +210,6 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use protocol::HashAlgorithm;
-
     fn test_signing_ctx() -> SigningContext {
         SigningContext::generate()
     }
@@ -294,13 +304,19 @@ mod tests {
         let tstinfo_len = u32::from_be_bytes([resp[2], resp[3], resp[4], resp[5]]) as usize;
         let sa_offset = 6 + tstinfo_len;
         let sa_len = u32::from_be_bytes([
-            resp[sa_offset], resp[sa_offset + 1], resp[sa_offset + 2], resp[sa_offset + 3],
+            resp[sa_offset],
+            resp[sa_offset + 1],
+            resp[sa_offset + 2],
+            resp[sa_offset + 3],
         ]) as usize;
         let sa_data = &resp[sa_offset + 4..sa_offset + 4 + sa_len];
 
         let sig_offset = sa_offset + 4 + sa_len;
         let sig_len = u32::from_be_bytes([
-            resp[sig_offset], resp[sig_offset + 1], resp[sig_offset + 2], resp[sig_offset + 3],
+            resp[sig_offset],
+            resp[sig_offset + 1],
+            resp[sig_offset + 2],
+            resp[sig_offset + 3],
         ]) as usize;
         let sig_data = &resp[sig_offset + 4..sig_offset + 4 + sig_len];
 

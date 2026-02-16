@@ -17,6 +17,9 @@ Thumbs.db
 .env
 .env.local
 
+# Rust build artifacts
+target/
+
 # CI-generated files
 existing-github-actions-issues.json
 

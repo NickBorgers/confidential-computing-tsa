@@ -6,12 +6,11 @@
 ///
 /// This module uses a proper ASN.1 library (rasn) since it runs outside the CVM
 /// and can be updated independently.
-
-use sha2::{Sha384, Digest};
-
 // CMS OIDs
 const OID_SIGNED_DATA: &[u8] = &[0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x02]; // 1.2.840.113549.1.7.2
-const OID_CT_TSTINFO: &[u8] = &[0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x10, 0x01, 0x04]; // 1.2.840.113549.1.9.16.1.4
+const OID_CT_TSTINFO: &[u8] = &[
+    0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x10, 0x01, 0x04,
+]; // 1.2.840.113549.1.9.16.1.4
 const OID_ECDSA_SHA384: &[u8] = &[0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x03]; // 1.2.840.10045.4.3.3
 const OID_SHA384: &[u8] = &[0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x02]; // 2.16.840.1.101.3.4.2.2
 
@@ -202,7 +201,7 @@ mod tests {
     fn algorithm_identifier_structure() {
         let algo_id = build_algorithm_identifier(OID_SHA384);
         assert_eq!(algo_id[0], 0x30); // SEQUENCE
-        // Should contain OID + NULL
+                                      // Should contain OID + NULL
     }
 
     #[test]
@@ -218,7 +217,7 @@ mod tests {
             ecdsa_cert_der: vec![0x30, 0x03, 0x02, 0x01, 0x01], // stub cert
             ca_chain_der: vec![],
             issuer_der: vec![0x30, 0x03, 0x0C, 0x01, 0x41], // stub issuer
-            serial_number_der: vec![0x02, 0x01, 0x01], // serial 1
+            serial_number_der: vec![0x02, 0x01, 0x01],      // serial 1
         };
         let components = CvmComponents {
             tstinfo_der: vec![0x30, 0x03, 0x02, 0x01, 0x01],

@@ -65,15 +65,18 @@ jobs:
               - '.markdownlint.json'
               - '.github/workflows/**'
             code:
-              - 'src/**'
+              - 'cvm/**'
+              - 'wrapper/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - '.github/workflows/**'
             docker:
               - 'Dockerfile'
+              - 'docker-entrypoint.sh'
               - 'Cargo.toml'
               - 'Cargo.lock'
-              - 'src/**'
+              - 'cvm/**'
+              - 'wrapper/**'
 
   doc-checks:
     name: Documentation Quality
@@ -200,7 +203,7 @@ jobs:
           echo "Running container startup smoke test..."
 
           docker run -d --name smoke-test \
-            -p 8080:8080 \
+            -p 3000:3000 \
             confidential-computing-tsa-test:pr
 
           # Wait for container to either become healthy or crash
@@ -217,7 +220,7 @@ jobs:
             fi
 
             # Check if health endpoint responds
-            if curl -sf http://localhost:8080/health >/dev/null 2>&1; then
+            if curl -sf http://localhost:3000/ >/dev/null 2>&1; then
               echo "Container started successfully (health check passed)"
               break
             fi

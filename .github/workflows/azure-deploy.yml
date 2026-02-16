@@ -1,6 +1,15 @@
 name: Deploy Confidential VM
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'cvm/**'
+      - 'wrapper/**'
+      - 'infra/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/azure-deploy.yml'
   workflow_dispatch:
 
 concurrency:
@@ -12,7 +21,56 @@ permissions:
   contents: read
 
 jobs:
+  build:
+    name: Build Rust Binaries
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      cvm_core_hash: ${{ steps.hashes.outputs.cvm_core_hash }}
+      tsa_wrapper_hash: ${{ steps.hashes.outputs.tsa_wrapper_hash }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-
+
+      - name: Build release binaries
+        run: cargo build --release --workspace
+
+      - name: Compute binary hashes
+        id: hashes
+        run: |
+          CVM_HASH=$(sha256sum target/release/cvm-core | awk '{print $1}')
+          WRAPPER_HASH=$(sha256sum target/release/tsa-wrapper | awk '{print $1}')
+          echo "cvm_core_hash=$CVM_HASH" >> "$GITHUB_OUTPUT"
+          echo "tsa_wrapper_hash=$WRAPPER_HASH" >> "$GITHUB_OUTPUT"
+          echo "cvm-core SHA-256:   $CVM_HASH"
+          echo "tsa-wrapper SHA-256: $WRAPPER_HASH"
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: tsa-binaries
+          path: |
+            target/release/cvm-core
+            target/release/tsa-wrapper
+          retention-days: 1
+
   deploy-and-test:
+    name: Deploy to CVM and Test
+    needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -26,6 +84,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Download binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: tsa-binaries
+          path: artifacts
 
       - name: Login to Azure
         uses: azure/login@v1
@@ -76,6 +140,25 @@ jobs:
           done
           echo "Timed out waiting for VM to be ready"
           exit 1
+
+      - name: Deploy TSA binaries to VM
+        run: |
+          VM_IP="${{ steps.tf.outputs.vm_ip }}"
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ~/.ssh_key"
+
+          echo "Copying binaries and scripts to VM..."
+          scp $SSH_OPTS artifacts/target/release/cvm-core artifacts/target/release/tsa-wrapper azureuser@"$VM_IP":/home/azureuser/
+          scp $SSH_OPTS infra/scripts/deploy-tsa.sh infra/scripts/test-tsa-application.sh azureuser@"$VM_IP":/tmp/
+
+          echo "Running deployment script..."
+          ssh $SSH_OPTS azureuser@"$VM_IP" "bash /tmp/deploy-tsa.sh"
+
+      - name: Run application tests
+        run: |
+          VM_IP="${{ steps.tf.outputs.vm_ip }}"
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ~/.ssh_key"
+
+          ssh $SSH_OPTS azureuser@"$VM_IP" "bash /tmp/test-tsa-application.sh '${{ needs.build.outputs.cvm_core_hash }}' '${{ needs.build.outputs.tsa_wrapper_hash }}'"
 
       - name: Run attestation tests
         run: |

@@ -161,7 +161,7 @@ jobs:
 
           # Start container
           docker run -d --name prod-smoke-test \
-            -p 8080:8080 \
+            -p 3000:3000 \
             "$IMAGE"
 
           # Wait for container to either become healthy or crash
@@ -178,7 +178,7 @@ jobs:
             fi
 
             # Check if health endpoint responds
-            if curl -sf http://localhost:8080/health >/dev/null 2>&1; then
+            if curl -sf http://localhost:3000/ >/dev/null 2>&1; then
               echo "Container started successfully (health check passed)"
               break
             fi

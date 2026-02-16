@@ -2,10 +2,9 @@
 ///
 /// Single-signer MVP: the full ECDSA private key is held in one CVM.
 /// Threshold signing (multi-party) will be added later.
-
 use ecdsa::signature::Signer;
-use p384::ecdsa::{SigningKey, Signature, VerifyingKey};
-use sha2::{Sha384, Digest};
+use p384::ecdsa::{Signature, SigningKey, VerifyingKey};
+use sha2::{Digest, Sha384};
 
 /// The signing context holds the private key in memory.
 /// The key is loaded once at startup and never persisted.
@@ -20,8 +19,8 @@ pub struct SigningContext {
 impl SigningContext {
     /// Create a signing context from a raw private key scalar (48 bytes).
     pub fn from_private_key_bytes(key_bytes: &[u8]) -> Result<Self, SigningError> {
-        let signing_key = SigningKey::from_bytes(key_bytes.into())
-            .map_err(|_| SigningError::InvalidKey)?;
+        let signing_key =
+            SigningKey::from_bytes(key_bytes.into()).map_err(|_| SigningError::InvalidKey)?;
         let verifying_key = *signing_key.verifying_key();
         Ok(Self {
             signing_key,

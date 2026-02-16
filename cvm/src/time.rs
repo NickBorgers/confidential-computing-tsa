@@ -5,7 +5,6 @@
 /// - NTS client for periodic cross-validation
 /// - Monotonic enforcement (timestamps never go backward)
 /// - GeneralizedTime formatter for TSTInfo
-
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Last issued timestamp in milliseconds since Unix epoch.
@@ -22,9 +21,7 @@ static LAST_TIMESTAMP_MS: AtomicU64 = AtomicU64::new(0);
 pub fn read_tsc() -> u64 {
     // SAFETY: RDTSC is always available on x86_64 and reads a monotonic counter.
     // On SEV-SNP with SecureTSC, this is hardware-protected.
-    unsafe {
-        core::arch::x86_64::_rdtsc()
-    }
+    unsafe { core::arch::x86_64::_rdtsc() }
 }
 
 #[cfg(not(target_arch = "x86_64"))]
@@ -182,7 +179,7 @@ fn unix_secs_to_datetime(secs: u64) -> (u16, u8, u8, u8, u8, u8) {
 }
 
 fn is_leap_year(year: u16) -> bool {
-    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+    (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400)
 }
 
 #[cfg(test)]
@@ -198,8 +195,8 @@ mod tests {
     #[test]
     fn format_known_date() {
         // 2026-02-15 12:00:00.000 UTC
-        // Unix timestamp: 1771070400000 ms
-        let unix_ms = 1_771_070_400_000;
+        // Unix timestamp: 1771156800000 ms
+        let unix_ms = 1_771_156_800_000;
         let gt = format_generalized_time(unix_ms);
         assert_eq!(&gt, b"20260215120000.000Z");
     }
@@ -207,7 +204,7 @@ mod tests {
     #[test]
     fn format_with_millis() {
         // 2026-02-15 12:00:00.123 UTC
-        let unix_ms = 1_771_070_400_123;
+        let unix_ms = 1_771_156_800_123;
         let gt = format_generalized_time(unix_ms);
         assert_eq!(&gt, b"20260215120000.123Z");
     }
@@ -262,8 +259,8 @@ mod tests {
 
     #[test]
     fn unix_secs_to_datetime_2026() {
-        // 2026-02-15 12:00:00 UTC = 1771070400
-        let (y, m, d, h, min, s) = unix_secs_to_datetime(1_771_070_400);
+        // 2026-02-15 12:00:00 UTC = 1771156800
+        let (y, m, d, h, min, s) = unix_secs_to_datetime(1_771_156_800);
         assert_eq!((y, m, d, h, min, s), (2026, 2, 15, 12, 0, 0));
     }
 }

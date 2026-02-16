@@ -1,7 +1,4 @@
 /// Wrapper configuration: certificates, policy, and CVM connection settings.
-
-use std::path::Path;
-
 /// Wrapper configuration loaded at startup.
 pub struct WrapperConfig {
     /// DER-encoded ECDSA P-384 TSA certificate.
@@ -47,12 +44,14 @@ impl WrapperConfig {
         }
 
         if let Ok(port) = std::env::var("CVM_PORT") {
-            config.cvm_port = port.parse()
+            config.cvm_port = port
+                .parse()
                 .map_err(|_| ConfigError::InvalidValue("CVM_PORT".into()))?;
         }
 
         if let Ok(cid) = std::env::var("CVM_CID") {
-            config.cvm_cid = cid.parse()
+            config.cvm_cid = cid
+                .parse()
                 .map_err(|_| ConfigError::InvalidValue("CVM_CID".into()))?;
         }
 
@@ -71,8 +70,7 @@ impl WrapperConfig {
 
 /// Load a DER-encoded file.
 fn load_der_file(path: &str) -> Result<Vec<u8>, ConfigError> {
-    std::fs::read(path)
-        .map_err(|e| ConfigError::FileNotFound(format!("{}: {}", path, e)))
+    std::fs::read(path).map_err(|e| ConfigError::FileNotFound(format!("{}: {}", path, e)))
 }
 
 #[derive(Debug)]
