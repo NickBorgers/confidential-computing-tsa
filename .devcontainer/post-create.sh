@@ -37,5 +37,20 @@ fi
 
 # Note: Claude Code and playwright-skill plugin are now pre-installed
 # in the Dockerfile for faster rebuilds via Docker layer caching.
+# Chromium is cached at /opt/playwright-browsers (set via PLAYWRIGHT_BROWSERS_PATH)
+# to survive devcontainer feature overlays on /home/vscode.
+
+# Verify Playwright browser is available (should be pre-installed in Docker image)
+if [ -n "$PLAYWRIGHT_BROWSERS_PATH" ] && [ -d "$PLAYWRIGHT_BROWSERS_PATH" ]; then
+    CHROMIUM_DIRS=$(find "$PLAYWRIGHT_BROWSERS_PATH" -maxdepth 1 -name 'chromium-*' -type d 2>/dev/null)
+    if [ -n "$CHROMIUM_DIRS" ]; then
+        echo "Playwright Chromium already installed at $PLAYWRIGHT_BROWSERS_PATH (skipping download)"
+    else
+        echo "Warning: Chromium not found in $PLAYWRIGHT_BROWSERS_PATH; installing..."
+        npx playwright install chromium
+    fi
+else
+    echo "Warning: PLAYWRIGHT_BROWSERS_PATH not set; Chromium will be downloaded on first use"
+fi
 
 echo "=== Devcontainer setup complete ==="

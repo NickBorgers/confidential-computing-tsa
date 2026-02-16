@@ -45,13 +45,20 @@ RUN npm install -g @anthropic-ai/claude-code
 # Install markdown linting tools for documentation quality checks
 RUN npm install -g markdownlint-cli markdown-link-check
 
+# Install Playwright browsers to a system-wide path so they survive
+# devcontainer feature overlays that may reset /home/vscode.
+# This prevents Chrome from being re-downloaded on every container start.
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
+RUN npm install -g playwright \
+    && mkdir -p /opt/playwright-browsers \
+    && npx playwright install chromium \
+    && chmod -R a+rx /opt/playwright-browsers
+
 # Create directories for vscode user with correct ownership
 RUN mkdir -p /home/vscode/.claude/tmp \
     && mkdir -p /home/vscode/.claude/plugins/cache \
     && mkdir -p /home/vscode/.claude/plugins/marketplaces \
-    && mkdir -p /home/vscode/.cache/ms-playwright \
-    && chown -R vscode:vscode /home/vscode/.claude \
-    && chown -R vscode:vscode /home/vscode/.cache
+    && chown -R vscode:vscode /home/vscode/.claude
 
 # Switch to vscode user for plugin installation
 USER vscode
@@ -64,10 +71,9 @@ ENV TMPDIR=/home/vscode/.claude/tmp
 RUN claude plugin marketplace add lackeyjb/playwright-skill \
     && claude plugin install playwright-skill@playwright-skill
 
-# Install Playwright npm dependencies and browser
+# Install Playwright npm dependencies for the plugin (browser already cached above)
 RUN cd ~/.claude/plugins/cache/playwright-skill/playwright-skill/*/skills/playwright-skill \
-    && npm install \
-    && npx playwright install chromium
+    && npm install
 
 # Switch back to root for any remaining operations
 USER root
