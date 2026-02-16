@@ -1,0 +1,9 @@
+name: Setup Devcontainer Mounts
+description: Create host directories required by devcontainer.json bind mounts
+
+runs:
+  using: composite
+  steps:
+    - name: Create mount directories for devcontainer
+      shell: bash
+      run: mkdir -p ~/.config/gh ~/.claude ~/.azure

@@ -77,9 +77,9 @@ jobs:
         if: steps.verify-tests.outputs.verified == 'true'
         run: git pull origin ${{ inputs.head_ref }} || true
 
-      - name: Create gh config directory for devcontainer mount
+      - name: Setup devcontainer mounts
         if: steps.verify-tests.outputs.verified == 'true'
-        run: mkdir -p ~/.config/gh
+        uses: ./.github/actions/setup-devcontainer-mounts
 
       - name: Log in to GHCR
         if: steps.verify-tests.outputs.verified == 'true'
