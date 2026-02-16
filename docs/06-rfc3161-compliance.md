@@ -245,7 +245,7 @@ TSTInfo ::= SEQUENCE {
 | `messageImprint` | Copied from request | Hash algorithm OID + hash value, unchanged |
 | `serialNumber` | Monotonically increasing, unique | Per-node counter + node ID to ensure global uniqueness across the cluster |
 | `genTime` | UTC from SecureTSC + NTS | GeneralizedTime with fractional seconds (e.g., `20260213120000.000Z`) |
-| `accuracy` | `{seconds: 0, millis: 50, micros: 0}` | 50ms conservative; actual precision approximately 1.2ms (see [Section 7](#7-accuracy-field)) |
+| `accuracy` | `{seconds: 1, millis: 0, micros: 0}` | 1 second conservative; timestamping is not latency-sensitive work (see [Section 7](#7-accuracy-field)) |
 | `ordering` | FALSE | CC-TSA does not guarantee total ordering across all tokens |
 | `nonce` | Copied from request (if present) | Echoed for replay protection; absent if not in request |
 | `tsa` | CC-TSA GeneralName | DirectoryName with the TSA's distinguished name from the certificate |
@@ -283,7 +283,7 @@ graph TD
         TST_MI["messageImprint:<br/>{SHA-384, hash-value}"]
         TST_SN["serialNumber: unique-integer"]
         TST_GT["genTime:<br/>20260213120000.000Z"]
-        TST_ACC["accuracy:<br/>{0s, 50ms, 0us}"]
+        TST_ACC["accuracy:<br/>{1s, 0ms, 0us}"]
         TST_N["nonce: from-request"]
     end
 
@@ -670,27 +670,27 @@ Accuracy ::= SEQUENCE {
 }
 ```
 
-Per RFC 3161 Section 2.4.2, the true time of the timestamp is guaranteed to be within `[genTime - accuracy, genTime + accuracy]`. A verifier should interpret this as: "The actual UTC time at which the TSA created this token is within 50 milliseconds of the stated `genTime`."
+Per RFC 3161 Section 2.4.2, the true time of the timestamp is guaranteed to be within `[genTime - accuracy, genTime + accuracy]`. A verifier should interpret this as: "The actual UTC time at which the TSA created this token is within 1 second of the stated `genTime`."
 
-### CC-TSA Accuracy: 50ms
+### CC-TSA Accuracy: 1 Second
 
-CC-TSA sets the `accuracy` field to `{seconds: 0, millis: 50, micros: 0}`, representing a maximum deviation of 50 milliseconds from UTC.
+CC-TSA sets the `accuracy` field to `{seconds: 1, millis: 0, micros: 0}`, representing a maximum deviation of 1 second from UTC. This conservative value reflects that timestamping is not latency-sensitive work and provides generous margin for all operating conditions.
 
 ```mermaid
 flowchart TD
     subgraph Sources["Time Uncertainty Sources"]
         direction TB
         NTS_SRC["NTS/NTP Network Latency<br/>Contribution: +/- 1ms<br/>Network round-trip to<br/>4 NTS time sources"]
-        TSC_SRC["SecureTSC Interpolation<br/>Contribution: less than 1 microsecond<br/>Hardware counter between<br/>NTP queries"]
-        TRI_SRC["TriHaRd Validation<br/>Contribution: +/- 50 microseconds<br/>Cross-node BFT consensus<br/>deviation threshold"]
-        SW_SRC["Software Overhead<br/>Contribution: less than 10 microseconds<br/>Processing time from<br/>time read to signing"]
+        TSC_SRC["SecureTSC Interpolation<br/>Contribution: negligible<br/>Hardware counter between<br/>NTP queries"]
+        TRI_SRC["TriHaRd Validation<br/>Contribution: +/- 100ms<br/>Cross-node BFT consensus<br/>deviation threshold"]
+        SW_SRC["Software Overhead<br/>Contribution: negligible<br/>Processing time from<br/>time read to signing"]
     end
 
-    ACTUAL["Actual Measured Precision<br/>~1.2 ms<br/>(dominated by NTP)"]
+    ACTUAL["Actual Precision<br/>~100 ms<br/>(dominated by TriHaRd threshold)"]
 
-    MARGIN["Safety Margin<br/>~40x buffer over<br/>measured precision"]
+    MARGIN["Safety Margin<br/>~10x buffer over<br/>TriHaRd threshold"]
 
-    STATED["Stated Accuracy<br/>50 ms<br/>(in TSTInfo accuracy field)"]
+    STATED["Stated Accuracy<br/>1 second<br/>(in TSTInfo accuracy field)"]
 
     NTS_SRC --> ACTUAL
     TSC_SRC --> ACTUAL
@@ -708,26 +708,26 @@ flowchart TD
 
 | Source | Contribution | Notes |
 |---|---|---|
-| NTS/NTP network latency | +/- 1ms | Network round-trip to NTS sources; dominant uncertainty |
-| SecureTSC interpolation | < 1 microsecond | Hardware counter between NTP queries; sub-nanosecond resolution |
-| TriHaRd cross-node validation | +/- 50 microseconds | BFT consensus threshold; nodes exceeding this are excluded |
-| Software overhead | < 10 microseconds | Processing time from clock read to signature |
-| **Actual measured precision** | **~1.2 ms** | **Dominated by NTP network latency** |
-| **Stated accuracy** | **50 ms** | **Conservative margin for safety** |
+| NTS/NTP network latency | ±1ms | Network round-trip to NTS sources |
+| SecureTSC interpolation | Negligible | Hardware counter between NTP queries |
+| TriHaRd cross-node validation | ±100ms | BFT consensus threshold; nodes exceeding this are excluded |
+| Software overhead | Negligible | Processing time from clock read to signature |
+| **Actual precision** | **~100 ms** | **Dominated by TriHaRd consensus threshold** |
+| **Stated accuracy** | **1 second** | **Conservative margin for safety** |
 
 For a detailed breakdown of the time trust chain that produces this precision, see [Confidential Computing & Time](02-confidential-computing-and-time.md), Sections 3 (Time Trust Chain) and 8 (Precision Budget).
 
-### Why 50ms (and Not Tighter)?
+### Why 1 Second?
 
-The 50ms accuracy field provides approximately a 40x safety margin over the measured precision of ~1.2ms. This conservatism is intentional:
+The 1-second accuracy field provides approximately a 10x safety margin over the TriHaRd consensus threshold of 100ms. This conservatism is intentional:
 
-1. **Rare NTP outliers**: While typical NTP precision is ~1ms, rare network congestion events or routing changes can cause NTP responses with higher-than-normal delays. The 50ms margin absorbs these outliers without producing timestamps that violate the stated accuracy.
+1. **Timestamping is not latency-sensitive**: RFC 3161 timestamps prove that data existed before a certain time. For the vast majority of use cases — document signing, code signing, compliance logging — 1-second accuracy is more than sufficient.
 
-2. **Network congestion buffer**: In multi-cloud deployments (see [Architecture Overview](01-architecture-overview.md), Section 6.2), cross-provider network latency can spike during congestion events. The 50ms margin ensures the accuracy claim remains valid even during transient network degradation.
+2. **Industry alignment**: Many production TSAs claim 1-second accuracy. The CC-TSA's 1-second claim aligns with industry norms, avoiding over-specification that could be invalidated under adverse conditions.
 
-3. **Industry alignment**: Many production TSAs claim 1-second accuracy. The CC-TSA's 50ms claim is 20x tighter than the industry norm while still being conservatively achievable. This positions CC-TSA as a high-precision TSA without making claims that could be invalidated under adverse conditions.
+3. **Operational margin**: The generous margin absorbs rare NTP outliers, cross-provider network congestion spikes, and transient degradation without producing timestamps that violate the stated accuracy.
 
-4. **Future tightening**: The accuracy field can be reduced in future deployments that use co-located NTS sources (reducing NTP latency to < 100 microseconds) or PTP (IEEE 1588, providing sub-microsecond accuracy). Reducing the stated accuracy is a non-breaking change -- it only improves the guarantee for verifiers.
+4. **Future tightening**: The accuracy field can be reduced in future deployments if tighter precision is required. Reducing the stated accuracy is a non-breaking change — it only improves the guarantee for verifiers. The underlying hardware (SecureTSC) provides sub-millisecond precision, so tightening is straightforward if a use case demands it.
 
 ---
 

@@ -22,17 +22,7 @@ For the system architecture underpinning this analysis, see [Architecture Overvi
 
 ## 1. Throughput Fundamentals
 
-Timestamp throughput in any TSA is bounded by the **slowest step** in the signing pipeline. In the CC-TSA system, the per-request latency budget (from [Architecture Overview](01-architecture-overview.md), Section 5.3) is:
-
-| Phase | Latency | Notes |
-|---|---|---|
-| Request parsing + validation | < 1 ms | Local computation |
-| Trusted time acquisition (SecureTSC read) | < 1 ms | NTS cross-validation is periodic, not per-request |
-| TSTInfo construction | < 1 ms | Local computation |
-| **Threshold signing (2 rounds)** | **10–50 ms** | Dominated by network round-trips between enclave nodes |
-| Signature combination + verification | < 5 ms | Local computation |
-| Response assembly | < 1 ms | Local computation |
-| **Total end-to-end** | **15–60 ms** | Excludes client network latency |
+Timestamp throughput in any TSA is bounded by the **slowest step** in the signing pipeline. CC-TSA is designed for a **< 1 second end-to-end** round-trip budget, reflecting that timestamping is not latency-sensitive work. The actual per-request latency is dominated by threshold signing coordination (network round-trips between enclave nodes) and is typically well below the 1-second budget.
 
 The raw cryptographic operations are not the bottleneck:
 
@@ -41,13 +31,13 @@ The raw cryptographic operations are not the bottleneck:
 | ML-DSA-65 signing | ~100,000 ops/sec | Lattice-based, highly parallelizable |
 | ECDSA P-384 signing | ~50,000 ops/sec | Elliptic curve, well-optimized |
 
-The bottleneck is **threshold signing coordination** — the two network round-trips required between the coordinator and 2 participant nodes. This latency varies by deployment topology:
+The bottleneck is **threshold signing coordination** — the two network round-trips required between the coordinator and 2 participant nodes. This latency varies by deployment topology but is well within the 1-second budget for all configurations:
 
 | Topology | Round-trip latency | Per-request signing latency (2 rounds) |
 |---|---|---|
-| Single-provider (intra-AZ) | < 1 ms | ~5–10 ms |
-| Single-provider (cross-AZ) | 1–2 ms | ~10–15 ms |
-| Multi-provider (Azure ↔ GCP) | 10–30 ms | ~25–60 ms |
+| Single-provider (intra-AZ) | < 1 ms | Tens of ms |
+| Single-provider (cross-AZ) | 1–2 ms | Tens of ms |
+| Multi-provider (Azure ↔ GCP) | 10–30 ms | Tens to low hundreds of ms |
 
 ---
 
@@ -55,13 +45,12 @@ The bottleneck is **threshold signing coordination** — the two network round-t
 
 ### 2.1 Serial Throughput (Single Coordinator, No Pipelining)
 
-If a single coordinator node processes one timestamp request at a time (no concurrency), throughput is simply `1 / per-request latency`:
+If a single coordinator node processes one timestamp request at a time (no concurrency), throughput is simply `1 / per-request latency`. Actual per-request latency is dominated by threshold signing network round-trips, not the 1-second round-trip budget:
 
-| Deployment | Per-request latency | Serial throughput |
+| Deployment | Typical per-request latency | Serial throughput |
 |---|---|---|
-| Single-provider (Azure, cross-AZ) | ~15 ms | ~67 timestamps/sec |
-| Multi-provider (recommended) | ~30 ms typical | ~33 timestamps/sec |
-| Multi-provider (worst case) | ~60 ms | ~17 timestamps/sec |
+| Single-provider (Azure, cross-AZ) | Tens of ms | ~30–70 timestamps/sec |
+| Multi-provider (recommended) | Tens to low hundreds of ms | ~10–30 timestamps/sec |
 
 ### 2.2 Parallel Throughput (Multiple Coordinators)
 
@@ -76,9 +65,8 @@ With 5 nodes and a 3-of-5 threshold, the maximum number of fully independent con
 
 | Deployment | Per-coordinator throughput | 5-coordinator throughput |
 |---|---|---|
-| Single-provider | ~67 tps | ~335 tps |
-| Multi-provider (typical) | ~33 tps | ~165 tps |
-| Multi-provider (worst case) | ~17 tps | ~85 tps |
+| Single-provider | ~30–70 tps | ~150–350 tps |
+| Multi-provider (typical) | ~10–30 tps | ~50–150 tps |
 
 ### 2.3 Pipelined Throughput
 
@@ -126,11 +114,11 @@ DigiStamp operates HSM-based Timestamp Authorities using IBM 4769 cryptographic 
 |---|---|---|
 | **DigiStamp: 1 HSM** | ~40 tps | ~1.26 billion/year |
 | **DigiStamp: 3 HSMs (3 locations)** | ~120 tps | ~3.78 billion/year |
-| **CC-TSA: 5-node serial (multi-provider)** | ~85–165 tps | ~2.68–5.20 billion/year |
+| **CC-TSA: 5-node serial (multi-provider)** | ~50–150 tps | ~1.6–4.7 billion/year |
 | **CC-TSA: 5-node pipelined (multi-provider)** | ~500–1,500 tps | ~15.8–47.3 billion/year |
 | **CC-TSA: 5-node pipelined (single-provider)** | ~1,000–3,000 tps | ~31.5–94.6 billion/year |
 
-The CC-TSA baseline (multi-provider, serial mode) matches or exceeds DigiStamp's per-HSM throughput. With pipelining enabled, CC-TSA significantly exceeds DigiStamp's capacity because the cryptographic operations run on general-purpose CPUs that are faster for ML-DSA/ECDSA signing than a dedicated HSM is for RSA signing. Note that DigiStamp's HSM-based approach prioritizes certified hardware security (FIPS 140-2 Level 4) and operational simplicity over raw throughput — these are different architectural trade-offs.
+The CC-TSA baseline (multi-provider, serial mode) approaches or exceeds DigiStamp's per-HSM throughput. With pipelining enabled, CC-TSA significantly exceeds DigiStamp's capacity because the cryptographic operations run on general-purpose CPUs that are faster for ML-DSA/ECDSA signing than a dedicated HSM is for RSA signing. Note that DigiStamp's HSM-based approach prioritizes certified hardware security (FIPS 140-2 Level 4) and operational simplicity over raw throughput — these are different architectural trade-offs.
 
 ### 3.3 Throughput-per-Dollar Comparison
 
@@ -153,8 +141,8 @@ The following table translates throughput into practical volume capacity for the
 
 | Mode | Throughput | Per hour | Per day | Per month (30d) | Per year |
 |---|---|---|---|---|---|
-| Serial, multi-provider (worst) | 85 tps | 306,000 | 7.3M | 220M | 2.7B |
-| Serial, multi-provider (typical) | 165 tps | 594,000 | 14.3M | 428M | 5.2B |
+| Serial, multi-provider (conservative) | 50 tps | 180,000 | 4.3M | 130M | 1.6B |
+| Serial, multi-provider (typical) | 150 tps | 540,000 | 13.0M | 389M | 4.7B |
 | Pipelined, multi-provider (conservative) | 500 tps | 1.8M | 43.2M | 1.3B | 15.8B |
 | Pipelined, multi-provider (typical) | 1,000 tps | 3.6M | 86.4M | 2.6B | 31.5B |
 | Pipelined, single-provider | 3,000 tps | 10.8M | 259.2M | 7.8B | 94.6B |
@@ -165,7 +153,7 @@ Many timestamp use cases (document signing, code signing, compliance logging) ar
 
 | Mode | Throughput | Per business day (12h) | Per year (250 days) |
 |---|---|---|---|
-| Serial, multi-provider (typical) | 165 tps | 7.1M | 1.8B |
+| Serial, multi-provider (typical) | 150 tps | 6.5M | 1.6B |
 | Pipelined, multi-provider (conservative) | 500 tps | 21.6M | 5.4B |
 | Pipelined, multi-provider (typical) | 1,000 tps | 43.2M | 10.8B |
 
@@ -284,7 +272,7 @@ In practice, network handling limits this to ~10,000–30,000 tps before connect
 
 ```mermaid
 flowchart LR
-    S0["Baseline 5-node cluster<br/>85–165 tps (serial)<br/>500–1,500 tps (pipelined)"]
+    S0["Baseline 5-node cluster<br/>50–150 tps (serial)<br/>500–1,500 tps (pipelined)"]
 
     S1["Strategy 1: Optimize<br/>Upgrade to 32 vCPU nodes<br/>Tune connection pools<br/>1,000–6,000 tps"]
 
@@ -361,7 +349,7 @@ All costs are estimated based on publicly available cloud pricing as of 2025. Ac
 |---|---|---|---|
 | **DigiStamp cloud (100K/mo)** | 0.04 tps avg | $7,500 | $6.25 |
 | **DigiStamp SecureTime (40 tps)** | 40 tps | ~$81,000 | $0.13 |
-| **CC-TSA baseline (serial)** | 165 tps | ~$104,000 | $0.04 |
+| **CC-TSA baseline (serial)** | 150 tps | ~$104,000 | $0.04 |
 | **CC-TSA baseline (pipelined)** | 1,000 tps | ~$104,000 | $0.007 |
 | **CC-TSA optimized (Strategy 1)** | 3,000 tps | ~$140,000 | $0.003 |
 | **CC-TSA + coordinators (Strategy 2)** | 15,000 tps | ~$171,000 | $0.0007 |
@@ -376,7 +364,7 @@ The following table provides a quick-reference guide for selecting the appropria
 
 | Tier | Configuration | Throughput | Annual volume (50% util.) | Annual cost (est.) | Cost / 1M timestamps |
 |---|---|---|---|---|---|
-| **Small** | Baseline 5-node, serial | 85–165 tps | 1.3–2.6B | ~$104,000 | $0.04–$0.08 |
+| **Small** | Baseline 5-node, serial | 50–150 tps | 0.8–2.4B | ~$104,000 | $0.04–$0.13 |
 | **Medium** | Baseline 5-node, pipelined | 500–1,500 tps | 7.9–23.7B | ~$104,000 | $0.004–$0.013 |
 | **Large** | Strategy 1 (32 vCPU + tuning) | 1,000–6,000 tps | 15.8–94.6B | ~$140,000 | $0.001–$0.009 |
 | **Enterprise** | Strategy 2 (+ coordinator nodes) | 5,000–30,000 tps | 78.8–473B | ~$171,000 | $0.0004–$0.002 |
@@ -384,7 +372,7 @@ The following table provides a quick-reference guide for selecting the appropria
 
 ### Key Takeaways
 
-1. **The baseline CC-TSA cluster already exceeds DigiStamp's per-HSM throughput.** Even in serial mode with multi-provider deployment, 5 coordinator nodes produce 85–165 tps versus DigiStamp's ~40 tps per HSM.
+1. **The baseline CC-TSA cluster already exceeds DigiStamp's per-HSM throughput.** Even in serial mode with multi-provider deployment, 5 coordinator nodes produce 50–150 tps versus DigiStamp's ~40 tps per HSM.
 
 2. **Pipelining unlocks an order of magnitude more throughput at zero additional infrastructure cost.** Enabling concurrent signing sessions on the existing 5-node cluster reaches 500–1,500 tps.
 

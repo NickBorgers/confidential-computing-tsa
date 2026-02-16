@@ -378,7 +378,7 @@ If lattice-based cryptography is broken:
 |---|---|---|
 | **Key confidentiality** | No single entity can reconstruct the signing key | Fewer than 3 of 5 enclaves compromised |
 | **Timestamp integrity** | Timestamps cannot be forged or backdated | Fewer than 3 of 5 enclaves compromised AND AMD-SP is trustworthy |
-| **Time accuracy** | genTime is within 50ms of UTC | ≥3 of 4 NTS sources are honest AND SecureTSC is functioning |
+| **Time accuracy** | genTime is within 1 second of UTC | ≥3 of 4 NTS sources are honest AND SecureTSC is functioning |
 | **Quantum safety** | Signatures remain secure against quantum computers | ML-DSA-65 (lattice) is secure OR SLH-DSA-128f (hash-based) is activated |
 | **Availability** | Signing service is operational | ≥3 of 5 nodes are online and attested |
 | **Non-repudiation** | TSA cannot deny issuing a timestamp | CMS SignedData with TSA certificate; audit log with attestation binding |

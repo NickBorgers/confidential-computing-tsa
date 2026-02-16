@@ -168,7 +168,7 @@ flowchart TB
     subgraph Layer4["Layer 4: TriHaRd Cross-Node Validation"]
         BCAST["Broadcast current time<br/>to all peers"]
         MEDIAN["Compute median of<br/>peer readings"]
-        EXCLUDE["Exclude nodes deviating<br/>&gt; 50us from median"]
+        EXCLUDE["Exclude nodes deviating<br/>&gt; 100ms from median"]
         CONSENSUS["Byzantine-agreed time<br/>for signing"]
     end
 
@@ -211,7 +211,7 @@ A software layer combines the absolute UTC reference from NTS with the high-reso
 
 ### Layer 4: TriHaRd Cross-Node Validation
 
-Each enclave node broadcasts its current time to all peers. The median of all readings is computed, and any node deviating by more than 50 microseconds from the median is flagged and excluded from signing. This provides Byzantine fault tolerance at the clock level: even if one node's hardware clock is compromised or faulty, it cannot issue timestamps with incorrect time. See Section 6 for the full TriHaRd protocol.
+Each enclave node periodically broadcasts its current time to all peers. The median of all readings is computed, and any node deviating by more than 100 milliseconds from the median is flagged and excluded from signing. This provides Byzantine fault tolerance at the clock level: even if one node's hardware clock is compromised or faulty, it cannot issue timestamps with incorrect time. See Section 6 for the full TriHaRd protocol.
 
 ---
 
@@ -350,30 +350,30 @@ TriHaRd (Triple Hardware Redundancy) is the CC-TSA protocol for cross-validating
 
 The TriHaRd protocol operates continuously while the CC-TSA cluster is active:
 
-1. **Broadcast**: Every 100ms, each node broadcasts a signed time-reading message to all peer nodes. The message contains:
+1. **Broadcast**: Every 30 seconds, each node broadcasts a signed time-reading message to all peer nodes. The message contains:
    - The node's current monotonic time (from Layer 3 of the trust chain)
    - The node's latest NTS synchronization status
    - A sequence number (to detect message loss)
    - A signature (using the node's enclave-attested identity key)
 
-2. **Collection**: Each node collects time readings from all peers within a 50ms window.
+2. **Collection**: Each node collects time readings from all peers within a 10-second window.
 
 3. **Median computation**: Each node computes the median of all collected readings (including its own), after adjusting for estimated network latency between nodes.
 
-4. **Deviation check**: If a node's own time reading deviates by more than 50 microseconds from the computed median, it flags itself as potentially drifted.
+4. **Deviation check**: If a node's own time reading deviates by more than 100 milliseconds from the computed median, it flags itself as potentially drifted.
 
 5. **Exclusion**: A flagged node withdraws from the threshold signing protocol until its time is corrected. Other nodes also exclude the flagged node from signing quorums.
 
-6. **Recovery**: A flagged node attempts to resynchronize via NTS and re-enters the signing pool once its time reading is within the 50-microsecond threshold for three consecutive broadcast rounds.
+6. **Recovery**: A flagged node attempts to resynchronize via NTS and re-enters the signing pool once its time reading is within the 100-millisecond threshold for three consecutive broadcast rounds.
 
 ```mermaid
 flowchart TB
     subgraph Cluster["CC-TSA Enclave Cluster"]
-        N1["Node 1<br/>Time: T + 0us"]
-        N2["Node 2<br/>Time: T + 12us"]
-        N3["Node 3<br/>Time: T + 8us"]
-        N4["Node 4<br/>Time: T - 5us"]
-        N5["Node 5 (Faulty)<br/>Time: T + 320us"]
+        N1["Node 1<br/>Time: T + 0ms"]
+        N2["Node 2<br/>Time: T + 3ms"]
+        N3["Node 3<br/>Time: T + 1ms"]
+        N4["Node 4<br/>Time: T - 2ms"]
+        N5["Node 5 (Faulty)<br/>Time: T + 450ms"]
     end
 
     N1 <-->|"time exchange"| N2
@@ -387,12 +387,12 @@ flowchart TB
     N3 <-->|"time exchange"| N5
     N4 <-->|"time exchange"| N5
 
-    Cluster --> COMPUTE["Median Computation<br/>Sorted: -5, 0, 8, 12, 320<br/>Median = 8us"]
+    Cluster --> COMPUTE["Median Computation<br/>Sorted: -2, 0, 1, 3, 450<br/>Median = 1ms"]
 
-    COMPUTE --> CHECK{"Deviation Check<br/>Threshold: 50us"}
+    COMPUTE --> CHECK{"Deviation Check<br/>Threshold: 100ms"}
 
-    CHECK -->|"Nodes 1-4: within 50us"| ACCEPT["Accepted for Signing<br/>Nodes 1, 2, 3, 4"]
-    CHECK -->|"Node 5: 312us deviation"| REJECT["Excluded from Signing<br/>Node 5 flagged"]
+    CHECK -->|"Nodes 1-4: within 100ms"| ACCEPT["Accepted for Signing<br/>Nodes 1, 2, 3, 4"]
+    CHECK -->|"Node 5: 449ms deviation"| REJECT["Excluded from Signing<br/>Node 5 flagged"]
 
     REJECT --> RESYNC["Node 5: NTS Resync<br/>Re-enter after 3 good rounds"]
 
@@ -405,16 +405,16 @@ flowchart TB
 
 **Byzantine fault tolerance**: TriHaRd tolerates `f < n/3` Byzantine (arbitrarily faulty) nodes. With the standard CC-TSA deployment of 5 nodes, this means it tolerates 1 faulty time source (`f=1`, since `1 < 5/3 ~ 1.67`). This aligns with the threshold signing requirement where 3-of-5 nodes must agree.
 
-**Network latency compensation**: Nodes in the same cloud region typically have less than 1ms network latency between them. The protocol accounts for this by:
+**Network latency compensation**: The protocol accounts for network latency by:
 - Measuring round-trip time (RTT) between each pair of nodes and estimating one-way delay as RTT/2.
 - Subtracting the estimated one-way delay from received time readings.
 - Using a sliding window average of RTT measurements to smooth out jitter.
 
-For multi-cloud deployments (e.g., nodes in Azure West US and GCP us-west1), inter-cloud latency is typically 1-5ms. The 50-microsecond deviation threshold applies after latency compensation. If the latency estimation itself has high variance (e.g., >20 microseconds jitter), the threshold can be relaxed for cross-cloud pairs, though this reduces the detection sensitivity.
+Cross-provider latency (typically 10–30ms) is well within the 100-millisecond deviation threshold. No special accommodation is needed for multi-cloud deployments.
 
-**Drift threshold configuration**: The 50-microsecond default threshold is chosen to be:
-- Tight enough to detect meaningful clock manipulation (a 50-microsecond error is far below the TSA's stated accuracy of 50ms).
-- Loose enough to accommodate normal crystal oscillator variation and network jitter.
+**Drift threshold configuration**: The 100-millisecond default threshold is chosen to be:
+- Tight enough to detect meaningful clock manipulation (a 100-millisecond error is well below the TSA's stated accuracy of 1 second).
+- Loose enough to comfortably accommodate crystal oscillator variation, network jitter, and cross-provider latency without false positives.
 - Configurable per deployment via the CC-TSA configuration file.
 
 **Relationship to threshold signing**: TriHaRd is integrated with the threshold signing protocol (see [Quantum-Safe Threshold Cryptography](03-quantum-safe-threshold-crypto.md)). Before a node participates in a threshold signing round, it must have a valid (non-flagged) time status. The signing coordinator checks each participant's TriHaRd status before including them in the signing quorum.
@@ -489,29 +489,22 @@ The following table provides a conservative end-to-end precision budget for a CC
 
 | Source | Uncertainty | Notes |
 |---|---|---|
-| NTS/NTP network latency | +/-500us to 1ms | Depends on network path; NTS adds ~0 overhead vs NTP |
-| NTS source accuracy | +/-100us | Stratum-1 sources with GPS/atomic reference |
-| SecureTSC crystal drift | <1 ppm (~86us/day) | Between NTS queries (query every 64s yields <64us drift) |
-| SecureTSC interpolation | <10ns | RDTSC resolution at multi-GHz frequency |
-| TriHaRd cross-validation | +/-50us | Consensus threshold; nodes exceeding this are excluded |
-| Software processing | <10us | Signing, serialization, kernel-to-userspace latency |
-| **Total (conservative)** | **+/-1.2ms** | **Dominated by NTP network latency** |
+| NTS/NTP network latency | ±1ms | Depends on network path; NTS adds ~0 overhead vs NTP |
+| NTS source accuracy | ±100μs | Stratum-1 sources with GPS/atomic reference |
+| SecureTSC crystal drift | <1 ppm (~86μs/day) | Between NTS queries (query every 64s yields <64μs drift) |
+| TriHaRd cross-validation | ±100ms | Consensus threshold; nodes exceeding this are excluded |
+| Software processing | Negligible | Signing, serialization, kernel-to-userspace latency |
+| **Total (conservative)** | **±100ms** | **Dominated by TriHaRd consensus threshold** |
 
-The RFC 3161 `accuracy` field in CC-TSA timestamp tokens is set to **50ms** to provide a generous margin. This conservative value accounts for degraded conditions (e.g., NTS source temporarily unavailable, cross-cloud latency spikes). Under normal operating conditions, actual precision is approximately 40x better than the stated accuracy.
+The RFC 3161 `accuracy` field in CC-TSA timestamp tokens is set to **1 second**. This conservative value provides a 10x margin over the TriHaRd consensus threshold, accounts for degraded conditions (e.g., NTS source temporarily unavailable, cross-cloud latency spikes), and reflects that timestamping is not latency-sensitive work. Actual precision under normal operating conditions is significantly better than the stated accuracy.
 
-### Improving Precision
+### Precision Considerations
 
-Several strategies can further improve the precision budget:
+The standard configuration (NTS over the network + SecureTSC + TriHaRd) provides precision that far exceeds the requirements of most timestamping use cases. The 1-second accuracy claim provides generous margin for degraded conditions while the actual precision under normal operation is in the low milliseconds.
 
-**Deploy NTS sources in the same datacenter**: If NTS servers are co-located in the same datacenter or availability zone as the CC-TSA nodes, NTP network latency drops from 500us-1ms to less than 100us. This alone brings the total uncertainty below 300us.
+If a deployment requires tighter precision guarantees, the TriHaRd deviation threshold and the stated accuracy field can both be tightened via configuration. However, tighter thresholds increase the risk of false positives (nodes excluded due to transient network jitter) without providing meaningful additional value for most timestamping use cases.
 
-**Use PTP (IEEE 1588) instead of NTP**: Precision Time Protocol provides sub-microsecond accuracy using hardware timestamping at the NIC level. Cloud providers are beginning to offer PTP-compatible time sources (e.g., Google Cloud's VM-internal PTP). Replacing NTP with PTP would reduce the dominant uncertainty source by three orders of magnitude. However, PTP does not yet have a standardized security mechanism equivalent to NTS, so this introduces a different trust consideration.
-
-**Multiple NTS queries with Kalman filtering**: By querying NTS sources more frequently (e.g., every 16 seconds instead of 64) and applying a Kalman filter to the responses, the effective NTS uncertainty can be reduced through statistical averaging. The Kalman filter also provides optimal fusion of the NTS and SecureTSC measurements, weighting each according to its estimated uncertainty.
-
-**Hardware PPS (Pulse Per Second) input**: For the highest precision deployments, a GPS receiver with PPS output can be connected directly to the host server. The PPS signal provides a once-per-second timing pulse accurate to within nanoseconds of UTC. However, this requires physical hardware access and is not available in standard cloud environments.
-
-For most CC-TSA deployments, the standard configuration (NTS over the network + SecureTSC + TriHaRd) provides precision that far exceeds the requirements of RFC 3161 timestamp tokens. See [RFC 3161 Compliance](06-rfc3161-compliance.md) for how the precision budget maps to the token's `accuracy` field.
+See [RFC 3161 Compliance](06-rfc3161-compliance.md) for how the precision budget maps to the token's `accuracy` field.
 
 ---
 

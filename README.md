@@ -63,7 +63,7 @@ graph TB
 ## Key Properties
 
 - **Threshold signing**: 3-of-5 ML-DSA-65 threshold scheme — any 3 enclave nodes can sign, but no 2 (or fewer) can
-- **Trusted time**: AMD SecureTSC provides hardware-protected TSC, calibrated by the AMD Secure Processor and validated across nodes via TriHaRd protocol (<50μs drift tolerance)
+- **Trusted time**: AMD SecureTSC provides hardware-protected TSC, calibrated by the AMD Secure Processor and validated across nodes via TriHaRd protocol
 - **Hybrid signatures**: Each token carries both ECDSA P-384 and ML-DSA-65 signatures — classical verifiers work today, quantum-safe verifiers are future-ready
 - **Multi-cloud**: Nodes distributed so no single cloud provider hosts ≥3 (the threshold), eliminating single-provider compromise risk
 - **Standard output**: RFC 3161-compliant timestamp tokens; drop-in replacement for existing TSA infrastructure

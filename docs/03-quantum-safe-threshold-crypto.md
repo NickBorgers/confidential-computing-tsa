@@ -91,7 +91,7 @@ graph TD
     TST_MI["messageImprint:<br/>{hashAlgorithm, hashedMessage}"]
     TST_SN["serialNumber: unique"]
     TST_GT["genTime: GeneralizedTime (UTC)"]
-    TST_ACC["accuracy: {seconds: 0, millis: 50}"]
+    TST_ACC["accuracy: {seconds: 1, millis: 0}"]
     TST_N["nonce: (from request)"]
     TST_TSA["tsa: CC-TSA GeneralName"]
     CERTS["<b>certificates</b><br/>{TSA cert (ECDSA),<br/>TSA cert (ML-DSA),<br/>CA chain}"]
@@ -213,10 +213,10 @@ sequenceDiagram
 
 **Performance characteristics:**
 
-- The 2-round protocol adds approximately **1-2ms latency** over single-signer ML-DSA signing.
-- With intra-region networking (< 1ms RTT between enclave nodes), total threshold signing completes in **< 5ms**.
+- The 2-round protocol requires two network round-trips between the coordinator and participants. Latency is dominated by network distance, not cryptographic computation.
 - The ECDSA threshold signing (for `SignerInfo #1`) runs in parallel using a similar 2-round protocol, well-studied for elliptic curves.
 - Rejection sampling in ML-DSA means that approximately 1 in 7 attempts will abort and require a retry from Round 1. This is inherent to the ML-DSA design and does not indicate an error. The expected number of rounds to produce a valid signature is approximately 7/6 (~1.17 attempts), contributing negligible overhead.
+- The overall signing latency is well within the 1-second end-to-end round-trip budget for all deployment topologies, including multi-provider configurations.
 
 **Security properties:**
 

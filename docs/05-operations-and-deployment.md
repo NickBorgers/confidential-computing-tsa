@@ -57,7 +57,7 @@ See [Quantum-Safe Threshold Cryptography](03-quantum-safe-threshold-crypto.md) f
 
 | Requirement | Details |
 |---|---|
-| Node-to-node | Mutual TLS (mTLS) with certificates attested during DKG; low latency (<5ms RTT recommended within a provider, <30ms RTT cross-provider) |
+| Node-to-node | Mutual TLS (mTLS) with certificates attested during DKG; cross-provider latency is acceptable given the 1-second round-trip budget |
 | Node-to-NTS | Outbound to 4+ NTS servers; UDP 123 (NTP) + TCP 4460 (NTS-KE) |
 | Load balancer to nodes | HTTPS (TLS 1.3); health check endpoint on each node |
 | Client-facing | HTTPS on port 443; RFC 3161 HTTP transport (POST to `/timestamp` endpoint) |
@@ -118,7 +118,7 @@ CC-TSA supports three deployment topologies. The multi-provider topology is **re
 **Cons:**
 - Multi-provider operational complexity: multiple consoles, billing, IAM systems
 - Cross-provider networking requires careful configuration (mTLS mesh, firewall rules)
-- Cross-provider latency adds 10-30ms to threshold signing round-trips
+- Cross-provider latency (typically 10-30ms) is negligible within the 1-second round-trip budget
 
 ### 2.3 Option C: Triple-Provider (Maximum Resilience)
 
@@ -138,7 +138,7 @@ This is a specific case of Option B where the third provider is a full-capabilit
 | Operational complexity | Low | Moderate | High |
 | Cost | Lower | Moderate | Higher |
 | Trust model | Single provider trust | No provider >= threshold | No provider >= threshold, diverse infrastructure |
-| Cross-provider latency | None (intra-provider) | 10-30ms for signing rounds | 10-30ms for signing rounds |
+| Cross-provider latency | None (intra-provider) | 10-30ms (negligible) | 10-30ms (negligible) |
 | **Recommendation** | Dev/staging only | **Production** | High-assurance use cases |
 
 ### 2.5 Multi-Provider Deployment Architecture
@@ -448,10 +448,10 @@ The following table defines the key operational metrics, their healthy ranges, a
 | Metric | Healthy | Warning | Critical |
 |---|---|---|---|
 | Nodes online | 5 | 4 | <= 3 |
-| TriHaRd max drift | <10 us | <50 us | >= 50 us (node excluded) |
+| TriHaRd max drift | <10 ms | <50 ms | >= 100 ms (node excluded) |
 | NTS source agreement | 4/4 agree | 3/4 agree | <3/4 agree |
 | Attestation status | All valid | 1 stale (>1h since last refresh) | Any invalid |
-| Signing latency (p99) | <50 ms | <200 ms | >= 200 ms |
+| Signing latency (p99) | <500 ms | <2s | >= 5s |
 | Signing success rate | >99.9% | >99% | <99% |
 | Key shares in memory | All 5 nodes hold shares | 4 nodes hold shares | <=3 nodes hold shares |
 | Certificate validity | >30 days remaining | <30 days remaining | <7 days remaining |
@@ -502,15 +502,15 @@ flowchart LR
 | Node down | Warning | 4/5 nodes online | Auto-recovery attempt, notify on-call via Slack |
 | Node down | Critical | 3/5 nodes online | Page on-call engineer, recover immediately |
 | Signing halted | Emergency | <3 nodes online | Page all engineers, execute recovery playbook (see [Failure Modes](04-failure-modes-and-recovery.md)) |
-| Clock drift | Warning | Any node >25 us drift from TriHaRd median | Monitor; may self-correct after next NTS sync |
-| Clock drift | Critical | Any node >50 us drift from TriHaRd median | Node auto-excluded from signing, investigate root cause |
+| Clock drift | Warning | Any node >50 ms drift from TriHaRd median | Monitor; may self-correct after next NTS sync |
+| Clock drift | Critical | Any node >100 ms drift from TriHaRd median | Node auto-excluded from signing, investigate root cause |
 | Attestation stale | Warning | Any node's attestation report >1h old | Trigger attestation refresh |
 | Attestation invalid | Critical | Any node's attestation verification fails | Node cannot participate in signing, investigate immediately |
 | Certificate expiring | Warning | <30 days to certificate expiry | Plan certificate renewal (see [Playbook 7](#playbook-7-certificate-expiry)) |
 | Certificate expiring | Critical | <7 days to certificate expiry | Emergency certificate renewal |
 | NTS sources degraded | Warning | Only 3/4 NTS sources responding | Check network connectivity to missing source |
 | NTS sources critical | Critical | <3/4 NTS sources responding | Cannot maintain Byzantine fault tolerance for time; investigate |
-| Signing latency elevated | Warning | p99 signing latency >200 ms | Investigate network latency between nodes |
+| Signing latency elevated | Warning | p99 signing latency >2s | Investigate network latency between nodes |
 | Signing errors | Critical | Signing success rate <99% | Investigate failing nodes, check partial signature verification |
 
 ### 4.3 Operational State Machine
@@ -523,7 +523,7 @@ stateDiagram-v2
     Attesting --> Synchronizing: Attestation valid
     Attesting --> Failed: Attestation failed
     Synchronizing --> WaitingForDKG: TriHaRd sync complete,<br/>joined cluster
-    Synchronizing --> TimeDrift: Drift > 50us
+    Synchronizing --> TimeDrift: Drift > 100ms
 
     WaitingForDKG --> DKGMode: DKG initiated
     DKGMode --> Active: DKG complete,<br/>key shares in memory
@@ -537,8 +537,8 @@ stateDiagram-v2
 
     Active --> DKGMode: Software change or<br/>key rotation initiated
 
-    Active --> TimeDrift: Node drift > 50us
-    TimeDrift --> Active: NTS resync, drift < 50us
+    Active --> TimeDrift: Node drift > 100ms
+    TimeDrift --> Active: NTS resync, drift < 100ms
     TimeDrift --> Failed: Persistent drift
 
     Failed --> Booting: Restart / Replace
@@ -841,7 +841,7 @@ For a comprehensive analysis of failure modes and their cascading effects, see [
 
 | Field | Detail |
 |---|---|
-| **Trigger** | TriHaRd excludes a node due to >50 us drift from median |
+| **Trigger** | TriHaRd excludes a node due to >100 ms drift from median |
 | **Severity** | Warning (single node) -> Critical (multiple nodes) |
 | **Impact** | Excluded node cannot participate in signing; fault tolerance reduced |
 
@@ -856,7 +856,7 @@ For a comprehensive analysis of failure modes and their cascading effects, see [
 
 **Escalation:** If multiple nodes show drift simultaneously, investigate a common cause (e.g., NTS source compromise, network-level time manipulation). Page security team.
 
-**Resolution criteria:** Node passes TriHaRd validation (drift <50 us for 3 consecutive rounds) and rejoins signing pool.
+**Resolution criteria:** Node passes TriHaRd validation (drift <100 ms for 3 consecutive rounds) and rejoins signing pool.
 
 ### Playbook 5: Attestation Failure
 
@@ -1034,7 +1034,7 @@ This section maps the CC-TSA design and operational procedures to the requiremen
 | Key generation | ETSI EN 319 421 Section 7.2 | DKG ceremony with mutual attestation, 4-eyes principle (2 operators), ceremony transcript archived |
 | Key protection | ETSI EN 319 421 Section 7.3 | Threshold shares (3-of-5) held exclusively in SEV-SNP enclave memory (hardware-encrypted, never persisted to durable storage); software immutability enforced by binding attestation measurement to TSA certificate; no at-rest key material to protect, steal, or manage |
 | Time synchronization | ETSI EN 319 421 Section 7.4 | NTS-authenticated NTP (RFC 8915) with 4+ Stratum-1 sources; SecureTSC hardware clock; TriHaRd Byzantine cross-validation. See [Confidential Computing & Time](02-confidential-computing-and-time.md) |
-| Timestamp accuracy | ETSI EN 319 421 Section 7.4 | 50ms accuracy field in token (actual <2ms); conservative margin for degraded conditions |
+| Timestamp accuracy | ETSI EN 319 421 Section 7.4 | 1-second accuracy field in token; conservative margin for degraded conditions |
 | Audit logging | ETSI EN 319 421 Section 7.5 | Immutable audit log with attestation-bound entries; DKG ceremony transcripts; operational event logging |
 | Disaster recovery | ETSI EN 319 421 Section 7.6 | Multi-provider deployment; recovery via DKG reconstitution (no external key material dependencies); documented procedures (this document); quarterly DKG drill testing |
 | Qualified signatures | eIDAS Article 42 | Hybrid signatures: ECDSA P-384 (qualified today under current standards) + ML-DSA-65 (quantum-safe, future-ready). See [Quantum-Safe Threshold Cryptography](03-quantum-safe-threshold-crypto.md) |

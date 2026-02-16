@@ -531,7 +531,7 @@ Trusted time is a core property of the CC-TSA. Clock drift can occur when a node
 
 The CC-TSA uses two complementary mechanisms to detect clock drift (see [Confidential Computing and Time](02-confidential-computing-and-time.md) for full details):
 
-1. **TriHaRd protocol**: Each node continuously compares its clock against the **peer median** of all other nodes. The tolerance threshold is **50 microseconds**. A node whose clock deviates by more than 50us from the peer median is flagged as drifting.
+1. **TriHaRd protocol**: Each node continuously compares its clock against the **peer median** of all other nodes. The tolerance threshold is **100 milliseconds**. A node whose clock deviates by more than 100ms from the peer median is flagged as drifting.
 
 2. **NTS cross-validation**: Each node independently validates its AMD SecureTSC hardware clock against multiple NTS-authenticated NTP time sources. If the hardware clock and the NTS sources disagree beyond a configurable threshold, the node flags itself.
 

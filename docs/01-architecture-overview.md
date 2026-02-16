@@ -174,7 +174,7 @@ CC-TSA uses a minimum of 4 NTS-authenticated NTP servers (RFC 8915) as external 
 1. Each enclave node reads its local time from the hardware TSC via SecureTSC.
 2. Periodically (configurable, default every 30 seconds), each node queries all 4 NTS servers.
 3. The TriHaRd protocol (Byzantine fault-tolerant time agreement) selects a valid time from the NTS responses, tolerating up to 1 faulty or malicious source out of 4.
-4. The node compares its SecureTSC time against the TriHaRd-validated NTS time. If drift exceeds the configured tolerance (default: 50 microseconds), the node raises an alert and may halt signing.
+4. The node compares its SecureTSC time against the TriHaRd-validated NTS time. If drift exceeds the configured tolerance (default: 100 milliseconds), the node raises an alert and may halt signing.
 
 This dual-source approach (hardware TSC + authenticated NTP) ensures that even if the hypervisor attempts to manipulate the software clock, the hardware TSC remains trustworthy, and even if the hardware TSC drifts, the NTS sources provide a cross-check.
 
@@ -207,15 +207,15 @@ The monitoring subsystem provides visibility into cluster health, performance, a
 | Dimension | Metrics | Alert Threshold |
 |---|---|---|
 | **Cluster health** | Nodes online, nodes attested, quorum status | < 4 nodes online |
-| **Time drift** | SecureTSC vs. NTS delta per node, inter-node clock skew | > 50 microseconds drift |
+| **Time drift** | SecureTSC vs. NTS delta per node, inter-node clock skew | > 100 milliseconds drift |
 | **Attestation status** | Attestation report validity, measurement changes, firmware versions | Any attestation failure |
-| **Signing performance** | Threshold signing latency (p50, p95, p99), request throughput | p99 > 500ms |
+| **Signing performance** | Threshold signing latency (p50, p95, p99), request throughput | p99 > 5s |
 | **Key share status** | Key share present in memory, DKG ceremony status | Any key share loss |
 | **NTS source health** | NTS server reachability, response validity, stratum changes | < 3 NTS sources reachable |
 
 **Alerting tiers:**
 
-- **Critical**: Quorum lost (< 3 nodes), attestation failure, time drift > tolerance. Pages on-call immediately.
+- **Critical**: Quorum lost (< 3 nodes), attestation failure, time drift > 100ms. Pages on-call immediately.
 - **Warning**: Degraded quorum (3 nodes), single NTS source unreachable, elevated signing latency. Notifies team.
 - **Info**: Node restart, DKG ceremony triggered, NTS source stratum change. Logged for audit.
 
@@ -390,11 +390,11 @@ sequenceDiagram
     Coord->>NTS: Cross-validate via TriHaRd protocol
     NTS-->>Coord: NTS-authenticated time responses
     Coord->>Coord: TriHaRd: BFT agreement on valid time
-    Coord->>Coord: Assert |SecureTSC - TriHaRd| < 50μs tolerance
+    Coord->>Coord: Assert |SecureTSC - TriHaRd| < 100ms tolerance
 
     Note over Coord: Phase 4 — TSTInfo Construction
     Coord->>Coord: Generate serial number (monotonic, unique)
-    Coord->>Coord: Construct TSTInfo:<br/>version, policy OID, message imprint,<br/>serial number, genTime (UTC),<br/>accuracy (±1ms), nonce, TSA name
+    Coord->>Coord: Construct TSTInfo:<br/>version, policy OID, message imprint,<br/>serial number, genTime (UTC),<br/>accuracy (±1s), nonce, TSA name
 
     Note over Coord,P3: Phase 5 — Threshold Signing (ML-DSA-65, 3-of-5)
     Coord->>P2: SigningRequest(TSTInfo digest)
@@ -442,7 +442,7 @@ sequenceDiagram
 
 If validation fails, the coordinator returns a `TimeStampResp` with an appropriate error status (e.g., `badAlg`, `badRequest`).
 
-**Phase 3 — Trusted Time Acquisition.** The coordinator obtains a trusted timestamp by reading the hardware TSC via SecureTSC and cross-validating against NTS-authenticated NTP sources using the TriHaRd Byzantine fault-tolerant protocol. If the SecureTSC and TriHaRd times diverge beyond the configured tolerance (default 50 microseconds), the node halts signing and raises an alert. The validated time is used as `genTime` in the TSTInfo.
+**Phase 3 — Trusted Time Acquisition.** The coordinator obtains a trusted timestamp by reading the hardware TSC via SecureTSC and cross-validating against NTS-authenticated NTP sources using the TriHaRd Byzantine fault-tolerant protocol. If the SecureTSC and TriHaRd times diverge beyond the configured tolerance (default 100 milliseconds), the node halts signing and raises an alert. The validated time is used as `genTime` in the TSTInfo.
 
 See [Confidential Computing & Time](02-confidential-computing-and-time.md) for the TriHaRd protocol specification.
 
@@ -455,7 +455,7 @@ See [Confidential Computing & Time](02-confidential-computing-and-time.md) for t
 | `messageImprint` | Copied from the request |
 | `serialNumber` | Monotonically increasing, unique across the cluster |
 | `genTime` | UTC time from Phase 3 (GeneralizedTime, sub-second precision) |
-| `accuracy` | ±1 millisecond (reflects SecureTSC + NTS validation accuracy) |
+| `accuracy` | ±1 second (conservative; reflects that timestamping is not latency-sensitive work) |
 | `ordering` | FALSE (serial numbers provide ordering within the same genTime) |
 | `nonce` | Copied from the request (if present) |
 | `tsa` | TSA GeneralName (from TSA certificate) |
@@ -484,15 +484,19 @@ See [RFC 3161 Compliance](06-rfc3161-compliance.md) for the exact CMS encoding o
 
 ### 5.3 Latency Budget
 
+Timestamping is not latency-sensitive work. The system is designed for a **< 1 second end-to-end** round-trip budget, which comfortably accommodates cross-provider network round-trips and threshold signing coordination without requiring latency optimization.
+
 | Phase | Expected Latency | Notes |
 |---|---|---|
 | Request parsing + validation | < 1 ms | Local computation |
-| Trusted time acquisition | < 1 ms (SecureTSC read) | NTS cross-validation is periodic, not per-request |
+| Trusted time acquisition | < 1 ms | NTS cross-validation is periodic, not per-request |
 | TSTInfo construction | < 1 ms | Local computation |
-| Threshold signing (2 rounds) | 10–50 ms | Dominated by network round-trips between enclave nodes |
+| Threshold signing (2 rounds) | Tens to hundreds of ms | Dominated by network round-trips between enclave nodes; varies by deployment topology |
 | Signature combination + verification | < 5 ms | Local computation |
 | Response assembly | < 1 ms | Local computation |
-| **Total (end-to-end)** | **15–60 ms** | Excludes network latency to/from client |
+| **Total (end-to-end)** | **< 1 second** | Excludes network latency to/from client |
+
+Throughput comes from pipelining concurrent signing sessions, not from optimizing individual request latency. See [Throughput & Scaling](08-throughput-and-scaling.md) for capacity analysis.
 
 ---
 
@@ -584,11 +588,11 @@ graph TB
 **Cross-provider networking:**
 
 The enclave nodes communicate over a cross-provider mesh network for:
-- Threshold signing rounds (latency-sensitive, typically 10–50 ms round-trip).
+- Threshold signing rounds.
 - Periodic time synchronization cross-checks.
 - Health checks and quorum status broadcasts.
 
-The mesh uses mTLS with certificates attested to each node's enclave identity. An optional WireGuard tunnel provides an additional encryption layer. Cross-provider latency (e.g., Azure East US to GCP us-central1) is typically 10–30 ms, which is acceptable for the threshold signing protocol.
+The mesh uses mTLS with certificates attested to each node's enclave identity. An optional WireGuard tunnel provides an additional encryption layer. Cross-provider latency (e.g., Azure East US to GCP us-central1) is typically 10–30 ms, which is negligible within the 1-second round-trip budget.
 
 ### 6.3 Topology Selection Guidance
 
@@ -599,7 +603,7 @@ The mesh uses mTLS with certificates attested to each node's enclave identity. A
 | Protection against single-region failure | Yes (cross-region) | Yes (cross-provider) |
 | Protection against single-provider compromise | **No** | **Yes** |
 | Operational complexity | Lower | Higher (multi-cloud networking, cross-provider DKG coordination) |
-| Latency (threshold signing) | Lower (intra-provider) | Higher (cross-provider, +10–30 ms) |
+| Latency (threshold signing) | Lower (intra-provider) | Higher (cross-provider); negligible within 1-second budget |
 
 For production deployments handling high-value timestamps, the multi-provider topology is recommended.
 
@@ -638,7 +642,7 @@ The threshold parameters (t=3, n=5) balance security and availability:
 
 - **Security**: An attacker must compromise 3 nodes to forge a signature. In the multi-provider topology, this requires compromising nodes across at least 2 cloud providers.
 - **Availability**: The system tolerates 2 simultaneous node failures while maintaining signing capability. This allows for AZ failures and individual node issues without downtime.
-- **Efficiency**: The threshold signing protocol requires only 3 nodes to participate per signature, keeping latency low even when all 5 are online (the coordinator selects the 2 fastest-responding participants).
+- **Efficiency**: The threshold signing protocol requires only 3 nodes to participate per signature. The coordinator selects 2 participants from the available pool.
 
 A 2-of-5 threshold would improve availability (tolerates 3 failures) but weakens security (only 2 nodes needed to forge). A 4-of-5 threshold would improve security but makes the system fragile (any single node failure blocks signing). The 3-of-5 configuration is the standard recommendation for Byzantine fault-tolerant systems with 5 nodes.
 
