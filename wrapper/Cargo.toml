@@ -1,0 +1,11 @@
+[package]
+name = "tsa-wrapper"
+version = "0.1.0"
+edition = "2021"
+description = "CC-TSA wrapper: RFC 3161 HTTP server and CMS assembly (outside CVM, updatable)"
+
+[dependencies]
+rasn = "0.22"
+rasn-cms = "0.22"
+rasn-pkix = "0.22"
+sha2 = "0.10"

@@ -78,6 +78,7 @@ CC-TSA explicitly documents what it trusts and what it does not.
 | Certificate Authority | **Yes** | The CA must correctly validate CSRs and issue certificates. CA compromise breaks the trust chain for new certificates. Mitigated by certificate transparency logs and short-lived certificates. |
 | TSA application code | **Yes** | The application is measured at boot and its measurement is part of the attestation report. Under the immutable software model, the application code is **fixed for the lifetime of a signing key** — its measurement is published and cryptographically bound to the TSA certificate. Relying parties can independently verify the measurement against the published, reproducibly-built binary. Any software change triggers key rotation (new DKG + new certificate), making the measurement a verifiable part of the TSA's cryptographic identity. Bugs in the application are within the TCB. |
 | Software immutability | **Yes (enforced)** | Operators cannot modify the running software without triggering key rotation (new DKG + new certificate). The attestation measurement is bound to the certificate — changing the software changes the measurement, which requires a new key and a new certificate. This removes the operator from the trust chain for signing operations: they can deploy new software, but doing so visibly changes the TSA's cryptographic identity. |
+| TSA wrapper (outside CVM) | **No** | The wrapper runs outside the CVM and handles HTTP, ASN.1 parsing, and CMS assembly. It is explicitly **untrusted** for signing operations — it holds no key material and cannot produce valid signatures. A compromised wrapper can deny service or return malformed responses, but cannot forge timestamps. Malformed responses are detected by client-side signature verification. The wrapper is updatable without triggering key rotation. |
 
 ---
 
@@ -136,6 +137,7 @@ graph TB
 | mTLS (node-to-node) | Software + attested certificates | Node impersonation, network attacker |
 | NTS authentication | RFC 8915 (TLS-KE + AEAD) | Time source spoofing |
 | Attestation verification | AMD-SP signature chain → AMD root | Fake enclaves, supply chain modification |
+| vsock (CVM-wrapper) | CVM boundary + vsock protocol | Wrapper compromise, protocol injection (wrapper has no key material; cannot forge signatures) |
 
 ---
 
@@ -158,6 +160,7 @@ graph TB
 | Timestamp manipulation (genTime) | TSTInfo | Critical | SecureTSC (AMD-SP calibrated, hardware-protected); TriHaRd cross-node validation; NTS for UTC reference | Residual: AMD-SP SecureTSC implementation bug |
 | Application code tampering | TSA binary | High | Launch measurement in attestation report; dm-verity for runtime integrity; reproducible builds | Residual: compromised build pipeline producing a valid but backdoored measurement |
 | DKG protocol tampering | Key generation | High | Attested TLS channels; Feldman VSS commitment verification; each node independently verifies all commitments | Residual: subtle protocol implementation bug |
+| Wrapper request manipulation | CVM binary protocol | Medium | CVM independently validates all inputs (digest length, algorithm enum); wrapper cannot influence TSTInfo content beyond providing the client's hash; CVM constructs TSTInfo and signs it directly | Residual: wrapper could substitute a different digest, but the client detects this when verifying the timestamp against their original data |
 | Key share persistence attack | Persistent storage | **Eliminated** | Key shares are ephemeral — they exist only in enclave memory and are never written to persistent storage. There is no at-rest key material to tamper with. | N/A — attack surface removed by ephemeral key model |
 
 ### Repudiation
@@ -186,6 +189,7 @@ graph TB
 | NTS source unavailability | Time synchronization | Medium | 4+ sources; tolerate 1 failure; SecureTSC continues interpolating between queries | Residual: if all 4 NTS sources fail, SecureTSC drift accumulates |
 | Node unavailability | Key share loss on node failure | Medium | Multi-provider deployment; threshold tolerates up to 2 node losses; share redistribution to replacement nodes | Residual: loss of ≥3 nodes simultaneously requires key regeneration (new DKG + new certificate) — by design |
 | Network partition | Node communication | Medium | Multi-provider/region deployment; threshold ensures at most one partition can sign | Residual: three-way partition halts signing (safe failure) |
+| Wrapper compromise | Timestamp service | Medium | Wrapper is updatable independently of CVM; compromised wrapper can be replaced without key rotation; load balancer health checks detect wrapper failures; wrapper holds no key material | Residual: brief service interruption during wrapper replacement |
 
 ### Elevation of Privilege
 
@@ -381,6 +385,20 @@ this is why the transition to PQC verification must complete before quantum comp
 5. If successful, the adversary could forge timestamps until detected and share refresh invalidates the old shares
 
 **Result**: Theoretical risk accepted. The cost and coordination required make this impractical for all realistic adversaries. See Residual Risk R3.
+
+### Scenario 7: Compromised Wrapper Attempts Timestamp Forgery
+
+**Attack**: An attacker compromises the wrapper (outside the CVM) and attempts to forge timestamps or manipulate signed data.
+
+**Analysis**:
+1. The wrapper has no access to the ECDSA private key — it resides only in CVM enclave memory
+2. The attacker cannot produce valid ECDSA P-384 signatures without the key
+3. The attacker could substitute a different digest in the request to the CVM, causing the CVM to sign a TSTInfo with a different messageImprint
+4. However, the client verifies the returned timestamp against their original data hash — a mismatched messageImprint is detected immediately
+5. The attacker could return cached or replayed responses, but nonce verification (when used) prevents replay
+6. The attacker could deny service by dropping requests or returning errors
+
+**Result**: Forgery fails. The wrapper's position outside the trust boundary limits its attack surface to denial of service and detectable digest substitution. This is the intended security property of the two-layer architecture.
 
 ---
 
