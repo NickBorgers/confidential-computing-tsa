@@ -398,4 +398,276 @@ this is why the transition to PQC verification must complete before quantum comp
 
 ---
 
+## 9. AMD Hardware Dependency Analysis
+
+CC-TSA's trust model is rooted in AMD SEV-SNP hardware,
+with SecureTSC providing the critical trusted time source.
+This section provides a dedicated analysis of the risks arising from this hardware dependency,
+catalogues known vulnerability classes,
+and evaluates their realistic exploitability against the CC-TSA architecture.
+
+### The Vendor Dependency Concern
+
+CC-TSA relies on AMD SEV-SNP for memory encryption, attestation,
+and — critically — SecureTSC for trusted time.
+This creates a hardware vendor dependency at the most sensitive layer of the trust model.
+If a fundamental flaw were discovered in the AMD Secure Processor (AMD-SP)
+that undermines memory isolation or attestation integrity,
+the security guarantees of all CC-TSA nodes running on AMD hardware
+would be affected simultaneously.
+
+This concern is legitimate and well-understood.
+It is the same class of risk faced by any system that relies on a hardware root of trust
+— including HSM-based TSAs (which depend on the HSM vendor's silicon),
+Intel SGX enclaves (which depend on Intel's microcode),
+and TLS infrastructure (which depends on CPU correctness for private key protection).
+The question is not whether the dependency exists,
+but whether the mitigations are proportionate to the risk.
+
+### Known AMD SEV Vulnerability History
+
+The following table catalogues significant publicly disclosed vulnerabilities
+affecting AMD SEV technologies.
+This history demonstrates both the reality of ongoing vulnerability discovery
+and AMD's track record of responsive patching.
+
+| Vulnerability | Year | CVE | Severity | Targets SNP? | Type | Status |
+|---|---|---|---|---|---|---|
+| SEVerity | 2021 | — | High | No (SEV/SEV-ES) | Code injection via I/O | Mitigated by SNP design |
+| CIPHERLEAKS | 2021 | — | Medium | Yes | Ciphertext side-channel | Mitigated on Zen 5 |
+| CacheWarp | 2023 | CVE-2023-20592 | Medium (5.3) | Yes | Fault injection (cache) | Patched (microcode) |
+| Firmware vulns | 2024 | — | Medium | Yes | Firmware logic errors | Patched (AMD-SB-3007) |
+| RMP init race | 2024 | — | High | Yes | Race condition in RMP | Patched (AMD-SB-3020) |
+| TsCupid | 2024 | — | Low | Yes (SecureTSC) | Co-location detection | Disclosed; mitigation proposed |
+| Microcode bypass | 2025 | CVE-2024-56161 | High (7.2) | Yes | Hash flaw in verification | Patched (microcode) |
+| CounterSEVeillance | 2025 | — | Medium | Yes | Perf counter side-channel | Ongoing research |
+| Heracles | 2025 | — | Medium | Yes | Chosen plaintext attack | Mitigated on Zen 5 |
+| StackWarp | 2026 | CVE-2025-29943 | Medium (4.6) | Yes | Pipeline manipulation | Patched (microcode) |
+
+### The "Not So Secure TSC" Paper
+
+The paper "Not So Secure TSC" (Juffinger, Neela, and Gruss; ACNS 2025)
+is directly relevant to CC-TSA because it targets
+the SecureTSC feature that underpins trusted time. The key findings are:
+
+**What the paper demonstrates**:
+The TsCupid protocol achieves 100% detection of co-located SEV-SNP confidential VMs
+within 4 milliseconds.
+It exploits the fact that SecureTSC exposes TSC frequency and offset metadata
+that allows an attacker to determine whether two VMs share the same physical CPU.
+The hypervisor's control over the `DESIRED_TSC_FREQ` field during `SNP_LAUNCH_START`
+leaks enough information for co-location inference.
+
+**What the paper does NOT demonstrate**:
+TsCupid does not break SecureTSC's time integrity guarantees.
+It does not allow an attacker to manipulate the guest's perception of time,
+read enclave memory, or forge attestation reports.
+The paper's authors explicitly note that SecureTSC
+"is quite resilient to modification attempts,
+thus making it a trustworthy hardware-based time source."
+
+**Impact on CC-TSA**:
+Co-location detection is a **prerequisite** for many cross-VM attacks,
+not an attack in itself. For CC-TSA, the implications are:
+
+1. **Workload identification**: An attacker could determine which VMs on a shared host
+   are CC-TSA nodes. In the multi-provider deployment model, this requires the attacker
+   to have VM placement capability on the same physical hosts as CC-TSA nodes
+   across multiple cloud providers.
+2. **Attack chain starting point**: Co-location detection would be the first step
+   in a more complex attack (e.g., a cache side-channel attack against the enclave).
+   The subsequent steps face the full set of SEV-SNP protections.
+3. **Mitigation**: The paper proposes that hypervisors use randomly generated
+   `DESIRED_TSC_FREQUENCY` values per guest,
+   which would eliminate the co-location signal.
+   This is a hypervisor-level change that cloud providers can deploy
+   independently of AMD silicon changes.
+
+### Exploitability Analysis in the CC-TSA Context
+
+The issue raises an important question:
+given CC-TSA's distributed, multi-provider architecture,
+how realistic are these vulnerabilities as actual attack vectors?
+The analysis below evaluates each vulnerability class
+against CC-TSA's specific defensive properties.
+
+#### Barrier 1: Workload Identification
+
+Before exploiting any AMD SEV vulnerability against CC-TSA,
+an attacker must first identify which VMs are CC-TSA nodes.
+In a cloud environment with millions of VMs, this is non-trivial:
+
+- CC-TSA nodes do not advertise their identity on shared infrastructure.
+  The TSA endpoint is behind a load balancer;
+  the enclave nodes are not directly addressable by external clients.
+- The TsCupid co-location technique requires the attacker to already have VMs
+  on the same physical hosts.
+  Cloud providers use placement algorithms that the attacker cannot directly control.
+- In the multi-provider deployment, nodes are distributed across Azure, GCP,
+  and a third provider. The attacker would need to identify and co-locate with
+  target nodes on at least 3 independent cloud platforms.
+
+#### Barrier 2: Threshold Requirement
+
+Even if an attacker exploits an AMD SEV vulnerability to compromise a single node,
+CC-TSA's 3-of-5 threshold means one compromised share is mathematically insufficient
+to forge signatures.
+The attacker must independently compromise 3 nodes across different cloud providers,
+each requiring:
+
+- Separate exploitation of AMD-SP on different physical hardware
+- Separate co-location or privileged access on each cloud platform
+- Simultaneous exploitation before proactive share refresh invalidates old shares
+
+#### Barrier 3: Cloud Provider Collusion
+
+The issue correctly identifies that exploiting CC-TSA would likely require
+cooperation between cloud providers.
+In the recommended multi-provider deployment (2 Azure + 2 GCP + 1 third provider),
+compromising 3 nodes requires access to infrastructure at 2 or more providers.
+This means either:
+
+- **Nation-state coercion** of multiple cloud providers in different jurisdictions
+  — a scenario where legal and geopolitical barriers are significant
+- **Independent compromise** of hypervisor/management planes at multiple providers
+  — each provider has distinct security architectures, access controls,
+  and monitoring systems
+- **Rogue employees** at multiple providers acting in coordination
+  — each provider has its own insider threat programs, access logging,
+  and separation of duties
+
+Cloud provider collusion against a specific customer workload,
+while not impossible, represents one of the highest-cost attack scenarios
+in the threat landscape.
+It is more realistic for nation-state adversaries targeting
+high-value intelligence targets
+than for attacks against timestamping infrastructure.
+
+#### Barrier 4: Vulnerability Severity vs. Exploitability
+
+Most known AMD SEV-SNP vulnerabilities require
+**local administrator privilege** on the host (i.e., hypervisor-level access).
+This means the attacker is effectively the cloud provider
+or has already compromised the cloud provider's management plane.
+In the CC-TSA threat model,
+the cloud provider is already classified as an untrusted adversary (A1),
+and SEV-SNP is the primary defense against this exact scenario.
+The relevant question is whether SEV-SNP's defenses hold,
+not whether the cloud provider has access.
+
+For each major vulnerability class:
+
+- **CacheWarp / StackWarp (fault injection)**: Requires hypervisor privileges.
+  Demonstrated extraction of RSA keys from specific library implementations.
+  CC-TSA mitigates by: (a) enforcing minimum microcode versions via attestation,
+  rejecting nodes with unpatched firmware;
+  (b) threshold distribution ensuring a single compromised node is insufficient;
+  (c) proactive share refresh limiting the exploitation window.
+- **Microcode injection (CVE-2024-56161)**: Requires local admin privilege
+  to load malicious microcode. Patched.
+  CC-TSA attestation reports include the platform TCB version,
+  allowing nodes to reject peers running vulnerable firmware.
+  A microcode injection on one host affects only that host's VMs
+  — it does not propagate across the CC-TSA cluster.
+- **Ciphertext side-channels (CIPHERLEAKS, Heracles)**:
+  Allow a malicious hypervisor to infer information about guest memory contents
+  through ciphertext observation.
+  Mitigated on Zen 5 and later via hardware restrictions on ciphertext visibility.
+  For older generations, firmware updates restrict page movement.
+  CC-TSA's ephemeral key model (no persistent key material)
+  limits the value of extracted information
+  — key shares are useful only until the next proactive refresh.
+- **Co-location detection (TsCupid)**: Low severity.
+  Enables identification of co-located VMs
+  but does not breach confidentiality or integrity.
+  CC-TSA's multi-provider deployment means co-location with one node
+  does not enable co-location with the threshold number of nodes.
+
+### Vendor Lock-In Mitigation Strategy
+
+CC-TSA acknowledges AMD hardware dependency
+and employs the following mitigation strategy:
+
+**Short-term (current design)**:
+
+- **Multi-provider deployment**: Distributes risk across cloud providers
+  even though all nodes use AMD SEV-SNP.
+  Different providers may run different AMD EPYC generations
+  with different firmware versions, reducing the likelihood
+  that a single vulnerability affects all nodes simultaneously.
+- **Attestation-enforced minimum versions**: Nodes reject peers that do not meet
+  minimum microcode and firmware version requirements.
+  When AMD patches a vulnerability, the minimum version policy is updated,
+  and unpatched nodes are excluded from signing quorums.
+- **Proactive share refresh**: Regularly rotates key shares so that exploitation
+  of a transient vulnerability yields shares that expire before they can be combined
+  with shares from other compromised nodes.
+
+**Medium-term (planned)**:
+
+- **Intel TDX integration**: As Intel TDX reaches general availability
+  on multiple cloud providers, CC-TSA can deploy a mixed-hardware cluster
+  where some nodes run on AMD SEV-SNP and others on Intel TDX.
+  A 3-of-5 cluster with 3 AMD nodes and 2 Intel nodes (or vice versa)
+  would require an attacker to compromise both AMD and Intel TEE implementations
+  — a significantly harder proposition than compromising one vendor's hardware.
+- **Abstraction layer**: The CC-TSA enclave interface is designed to abstract
+  over the specific TEE technology.
+  The threshold signing protocol, time validation logic,
+  and attestation verification are platform-agnostic at the application layer,
+  with platform-specific adapters for AMD SEV-SNP and Intel TDX
+  attestation formats.
+
+**Long-term (roadmap)**:
+
+- **ARM CCA support**: ARM Confidential Compute Architecture (CCA) introduces Realms
+  as a third TEE option, relevant for edge deployments
+  and providers using ARM-based servers.
+- **Cross-vendor attestation standards**: The Confidential Computing Consortium (CCC)
+  is working on standardized attestation formats and verification procedures.
+  Adoption of these standards would allow CC-TSA to treat TEE platforms
+  as interchangeable trust anchors,
+  reducing dependency on any single vendor.
+
+### Systemic Risk Assessment
+
+The following table assesses the AMD hardware dependency risk
+considering CC-TSA's layered defenses:
+
+| Factor | Assessment |
+|---|---|
+| **Single-vendor silicon dependency** | Real, but shared with every hardware-rooted trust system. No system avoids all hardware trust assumptions. |
+| **Known vulnerability frequency** | Approximately 1-3 significant SEV-SNP vulnerabilities per year. Consistent with typical security research cadence. |
+| **AMD patch responsiveness** | AMD has patched all reported vulnerabilities, typically within weeks to months of responsible disclosure. |
+| **Simultaneous exploitation across providers** | Very low probability. Requires the same unpatched vulnerability at 3+ providers plus hypervisor access at each. |
+| **Impact if AMD-SP fundamentally broken** | Critical — but requires a bypass of memory encryption or attestation that survives microcode patches. |
+| **Comparison to alternatives** | Intel TDX has less security research scrutiny to date. Less scrutiny does not mean more secure. |
+| **Overall risk rating** | **Low likelihood, Critical impact** — unchanged from R1. Multi-provider threshold reduces to coordinated multi-point attack. |
+
+### Conclusion
+
+AMD SEV-SNP hardware dependency is a legitimate concern
+that CC-TSA explicitly acknowledges and actively mitigates.
+The steady cadence of vulnerability discoveries demonstrates
+that AMD's security boundary is imperfect
+— but the same is true of every hardware security technology.
+CC-TSA's architecture converts what would be a catastrophic single-point-of-failure
+into a distributed problem requiring coordinated exploitation
+across multiple independent cloud providers,
+each running on separate physical hardware.
+
+The practical barriers to exploitation
+— workload identification across providers,
+the 3-of-5 threshold requirement,
+cloud provider collusion complexity,
+and proactive share refresh —
+mean that known AMD SEV vulnerabilities do not translate
+into realistic attack vectors against a correctly deployed
+multi-provider CC-TSA cluster.
+The medium-term migration to mixed AMD/Intel hardware
+will further reduce this risk
+by eliminating single-vendor dependency at the hardware trust root.
+
+---
+
 *This document is part of the CC-TSA documentation suite. For the complete list of documents, see the [Document Map](../README.md#document-map) in the project README.*

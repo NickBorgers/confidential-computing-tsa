@@ -123,6 +123,28 @@ The hypervisor cannot read or modify these values.
 - Crystal oscillator drift: typically <1 ppm (parts per million), which equates to approximately 86 microseconds per day
 - Between NTS calibration queries (e.g., every 64 seconds), drift accumulates to <64 microseconds
 
+**Security research and known limitations**:
+SecureTSC has been the subject of active security research.
+The "Not So Secure TSC" paper (Juffinger, Neela, and Gruss; ACNS 2025) demonstrated that SecureTSC metadata
+— specifically the TSC frequency and offset values —
+can be used to detect whether two SEV-SNP VMs are co-located on the same physical host.
+The TsCupid protocol achieves 100% co-location detection within 4 milliseconds.
+This is possible because the hypervisor controls the `DESIRED_TSC_FREQ` field during `SNP_LAUNCH_START`,
+and the resulting TSC parameters are correlated across VMs sharing the same physical CPU.
+
+Importantly, this research does **not** demonstrate any ability to manipulate SecureTSC's time values
+— the paper's authors explicitly confirm that SecureTSC is resilient to modification attempts
+and remains a trustworthy time source.
+The co-location detection is a privacy/metadata leakage concern, not a time integrity concern.
+The proposed mitigation (hypervisors using randomized `DESIRED_TSC_FREQUENCY` values per guest)
+can be deployed at the cloud provider level without changes to AMD silicon.
+
+For CC-TSA, the co-location risk is addressed by the multi-provider deployment model:
+even if an attacker determines co-location with one CC-TSA node,
+the 3-of-5 threshold requires compromising nodes across multiple independent cloud providers.
+See [Threat Model — AMD Hardware Dependency Analysis](07-threat-model.md#9-amd-hardware-dependency-analysis)
+for the full exploitability assessment.
+
 For CC-TSA, SecureTSC is the foundation of the time trust chain.
 It provides a tamper-resistant, high-resolution time source inside the enclave that the cloud provider cannot manipulate.
 Combined with NTS-authenticated external time sources and cross-node validation,
