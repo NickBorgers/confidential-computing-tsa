@@ -1,6 +1,19 @@
-name: "Review: RFC Compliance & Standards"
+name: "Review: External Reviewability & Operator Independence"
 
-# Reusable workflow - validates RFC 3161, NIST SP 800-208 (PQC), AMD SEV-SNP spec compliance
+# Reusable workflow - validates that the system remains externally reviewable
+# and that no organizational processes are trusted for secure operation.
+#
+# Core principle: A relying party must be able to verify the security of the
+# CC-TSA without trusting the operating organization. Any change that introduces
+# a dependency on operator honesty, organizational procedures, or internal
+# processes for security (rather than for availability) is a blocking issue.
+#
+# Background: The original design trusted the operator to correctly update KMS
+# attestation policies during rolling updates. This meant a backdoored image
+# could be accepted as easily as a legitimate one. The immutable software +
+# ephemeral key model was adopted to structurally prevent this. This review
+# ensures that invariant is maintained.
+#
 # Called by claude-code-review.yml orchestrator
 
 on:
@@ -40,7 +53,7 @@ on:
         required: true
 
 jobs:
-  standards-review:
+  external-reviewability-review:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -103,7 +116,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Standards compliance review in devcontainer
+      - name: External reviewability review in devcontainer
         if: steps.verify-tests.outputs.verified == 'true'
         uses: devcontainers/ci@v0.3
         with:
@@ -131,21 +144,23 @@ jobs:
               --model opus \
               --dangerously-skip-permissions \
               --max-turns 450 \
-              "You are an RFC COMPLIANCE & STANDARDS REVIEW specialist for PR #${PR_NUMBER} in ${REPO}.
+              "You are an EXTERNAL REVIEWABILITY & OPERATOR INDEPENDENCE review specialist for PR #${PR_NUMBER} in ${REPO}.
 
-            Your role is to evaluate whether this PR's changes comply with the relevant standards
-            and specifications that govern this quantum-safe Timestamp Authority system.
+            Your role is to evaluate whether this PR's changes preserve the system's core architectural
+            invariant: **a relying party must be able to verify the security of the CC-TSA without trusting
+            the operating organization.** Security properties must be structurally enforced, not dependent
+            on operators following correct procedures.
 
             Do NOT modify any code or push any changes. This is a read-only review.
 
             **CRITICAL: Only report issues that require action from the PR author.**
-            Do NOT provide general standards education. Do NOT praise compliant sections.
+            Do NOT provide general education about trust models. Do NOT praise compliant sections.
             If there are no actionable issues, post a short approval and move on.
 
             **QUICK CHECK:** If this PR is purely infrastructure, CI/CD, devcontainer, or workflow
-            configuration with no changes to protocol designs, compliance claims, or standards
-            references, post:
-            'Approved - No standards-relevant changes to evaluate.'
+            configuration with no changes to trust model, key management, attestation, deployment
+            procedures, or operator capabilities, post:
+            'Approved - No changes affecting external reviewability or operator independence.'
             and stop.
 
             **CONTEXT:**
@@ -157,64 +172,101 @@ jobs:
             Issue Description:
             ${ISSUE_BODY}
 
+            **BACKGROUND — WHY THIS REVIEW EXISTS:**
+
+            The original CC-TSA design had a trust contradiction: it claimed relying parties could verify
+            trust without trusting the operator, but the rolling update procedure gave operators the ability
+            to update KMS attestation policies to accept arbitrary software measurements. A backdoored
+            image could be deployed as easily as a legitimate one — the operator just had to add its
+            measurement to the KMS policy. The threat model called this 'detected by measurement change,'
+            but detection requires someone independently checking, and the KMS would not stop it.
+
+            This was corrected by adopting an immutable software + ephemeral key model:
+            - Software is immutable for the lifetime of a signing key
+            - Key shares exist only in enclave memory (no persistence, no KMS dependency)
+            - The attestation measurement is bound to the TSA certificate and published
+            - Any software change forces key rotation (new DKG + new certificate)
+            - Operator backdoor via KMS policy is structurally eliminated, not just detected
+
+            See .github/issues/ for the full history of this architectural correction.
+
             **YOUR TASK:**
 
             1. Read the code changes: \`git diff origin/main...HEAD\`
             2. Read project documentation for context:
-               - docs/06-rfc3161-compliance.md (RFC 3161 Timestamp Protocol compliance)
-               - docs/03-quantum-safe-threshold-crypto.md (NIST PQC algorithm choices)
-               - docs/02-confidential-computing-and-time.md (AMD SEV-SNP attestation)
-               - docs/01-architecture-overview.md (system architecture)
-               - docs/07-threat-model.md (security model)
-            3. Evaluate the changes against the standards below
+               - docs/07-threat-model.md (trust assumptions and adversary model)
+               - docs/01-architecture-overview.md (system architecture, immutability model)
+               - docs/03-quantum-safe-threshold-crypto.md (key lifecycle, DKG)
+               - docs/04-failure-modes-and-recovery.md (recovery procedures)
+               - docs/05-operations-and-deployment.md (deployment and update procedures)
+               - .github/issues/ (history of the trust model correction)
+            3. Evaluate the changes against the invariants below
 
-            **STANDARDS TO CHECK (only assess standards relevant to this PR):**
+            **INVARIANTS TO CHECK (only assess invariants relevant to this PR):**
 
-            1. **RFC 3161 - Internet X.509 PKI Time-Stamp Protocol**
-               - TimeStampReq and TimeStampResp message format compliance
-               - Mandatory fields (version, messageImprint, nonce handling)
-               - TSA policy OID requirements
-               - Error handling (PKIStatusInfo values)
-               - Ordering and accuracy guarantees
+            1. **No organizational process trust for security**
+               Does any change introduce a step where security depends on an operator following a
+               correct procedure? Examples of violations:
+               - Operator must update a policy/config to maintain security (vs. availability)
+               - Operator must verify a measurement before deploying (vs. measurement being structurally bound)
+               - Operator must revoke/rotate something manually for security to hold
+               - A procedure document describes security-critical steps that rely on human compliance
+               The test: if the operator is malicious or negligent, does the security property still hold?
 
-            2. **NIST SP 800-208 - Recommendation for Stateful Hash-Based Signature Schemes**
-               - Correct algorithm parameter selections (ML-DSA levels, XMSS/LMS tree heights)
-               - Key lifecycle management requirements
-               - State management for stateful signatures (if used)
-               - Hybrid signature scheme construction validity
+            2. **Attestation measurement binding**
+               Does any change weaken the binding between the attestation measurement and the TSA
+               certificate? The measurement must be fixed at DKG time, published alongside the
+               certificate, and independently verifiable. Any change that allows the measurement to
+               change without triggering key rotation (new DKG + new certificate) is a blocking issue.
 
-            3. **AMD SEV-SNP Specification**
-               - Attestation report format and verification flow
-               - Guest policy and platform info requirements
-               - VCEK certificate chain validation
-               - Launch measurement and identity block usage
+            3. **Key material ephemerality**
+               Does any change introduce persistence of key shares outside enclave memory? Key shares
+               must exist only in hardware-encrypted enclave memory. Any introduction of KMS-based
+               key wrapping, sealed storage, or other persistence mechanisms is a blocking issue
+               (it reintroduces the operator-controls-KMS-policy attack surface).
 
-            4. **General Cryptographic Standards**
-               - FIPS 140-3 module boundary requirements (if claimed)
-               - X.509 certificate profile compliance
-               - ASN.1 encoding correctness (DER vs BER requirements)
+            4. **External verifiability**
+               Does any change introduce a security property that a relying party cannot independently
+               verify? Relying parties must be able to verify: the attestation measurement matches the
+               published measurement, the measurement is bound to the certificate, and the software
+               is reproducibly built. Any 'trust us' claim that cannot be independently checked is a
+               blocking issue.
+
+            5. **Structural prevention vs. detection**
+               Does any change describe a threat as 'detected' or 'mitigated by monitoring' when it
+               should be 'structurally prevented'? The key distinction: detection means someone must
+               notice and respond; structural prevention means the attack cannot succeed regardless
+               of whether anyone is watching. Changes that downgrade from structural prevention to
+               detection-based mitigation are blocking issues.
+
+            6. **Software immutability during key lifetime**
+               Does any change introduce a mechanism for changing running software without triggering
+               key rotation? Rolling updates, hot-patching, in-place upgrades, or any mechanism that
+               allows the running binary to change while the same signing key remains active is a
+               blocking issue. Software changes must be all-or-nothing key rotation events.
 
             **SEVERITY GUIDELINES:**
-            - **Blocking**: Standards violations that would make the system non-compliant
-              (e.g., missing mandatory RFC 3161 fields, incorrect algorithm parameters)
-            - **Non-blocking suggestion**: Improvements that would strengthen compliance but
-              aren't strict violations
-            - **Note**: Standards-related observations worth considering
+            - **Blocking**: Changes that violate any of the above invariants — reintroducing operator
+              trust, weakening measurement binding, persisting key material, or making security
+              properties unverifiable
+            - **Non-blocking suggestion**: Changes that could be clearer about external verifiability
+              or that use ambiguous language about trust properties
+            - **Note**: Observations about trust model implications worth considering
 
             Post exactly ONE comment using:
-            gh pr comment ${PR_NUMBER} --body '## RFC Compliance & Standards Review
+            gh pr comment ${PR_NUMBER} --body '## External Reviewability & Operator Independence Review
 
-            [If no standards-relevant changes: \"Approved - No standards-relevant changes to evaluate.\" and stop]
+            [If no relevant changes: \"Approved - No changes affecting external reviewability or operator independence.\" and stop]
 
-            [If no issues: \"Approved - Changes comply with applicable standards.\" and stop]
+            [If no issues: \"Approved - Changes maintain external reviewability and operator independence.\" and stop]
 
-            ### Standards Evaluation
-            [Only list actionable compliance concerns, organized by standard. Cite specific RFC sections or spec clauses. Skip standards with no issues.]
+            ### Trust Model Evaluation
+            [Only list actionable concerns, organized by invariant. Cite specific files/lines. Explain what trust dependency or verifiability gap the change introduces. Skip invariants with no issues.]
 
             ### Conclusion
-            [Approved | Approved with suggestions | Blocking compliance issues found]'" < /dev/null 2>&1 | tee /workspaces/confidential-computing-tsa/standards-review-output.jsonl
+            [Approved | Approved with suggestions | Blocking trust model issues found]'" < /dev/null 2>&1 | tee /workspaces/confidential-computing-tsa/standards-review-output.jsonl
 
-      - name: Upload standards review output
+      - name: Upload review output
         uses: actions/upload-artifact@v4
         if: always()
         with:
