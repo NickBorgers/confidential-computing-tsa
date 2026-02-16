@@ -441,9 +441,15 @@ In the two-layer architecture, the CMS `SignedData` construction is split betwee
 - `ContentInfo` envelope with `id-signedData` content type
 - `TimeStampResp` with `PKIStatusInfo`
 
-This split ensures that the security-critical operations (time reading, TSTInfo construction, signing) occur inside the attested CVM, while the protocol complexity (ASN.1 parsing, CMS assembly, HTTP handling) resides in the updatable wrapper. The wrapper holds no key material and cannot forge signatures.
+This split ensures that the security-critical operations (time reading, TSTInfo construction, signing)
+occur inside the attested CVM, while the protocol complexity (ASN.1 parsing, CMS assembly, HTTP handling)
+resides in the updatable wrapper. The wrapper holds no key material and cannot forge signatures.
 
-The CVM and wrapper communicate over vsock using a fixed binary protocol documented in [Enclave Interface](09-enclave-interface.md). For the MVP, only ECDSA P-384 is produced by the CVM (single `SignerInfo`). ML-DSA-65 threshold signing will be added in a future iteration, producing a second `SignerInfo` in the CMS structure.
+The CVM and wrapper communicate over vsock using a fixed binary protocol
+documented in [Enclave Interface](09-enclave-interface.md).
+For the MVP, only ECDSA P-384 is produced by the CVM (single `SignerInfo`).
+ML-DSA-65 threshold signing will be added in a future iteration,
+producing a second `SignerInfo` in the CMS structure.
 
 ### Signed Attributes
 

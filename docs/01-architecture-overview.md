@@ -251,7 +251,9 @@ The CC-TSA enclave design splits responsibilities between two layers to minimize
 
 **CVM Core (inside SEV-SNP VM — immutable, attested, ~670 LOC Rust):**
 
-The CVM core is the minimal signing oracle. It runs inside the confidential VM, is measured at boot, and its hash is bound to the TSA certificate. Any change to the CVM core triggers a new DKG ceremony and new certificate issuance.
+The CVM core is the minimal signing oracle. It runs inside the confidential VM,
+is measured at boot, and its hash is bound to the TSA certificate.
+Any change to the CVM core triggers a new DKG ceremony and new certificate issuance.
 
 | Module | Responsibility | LOC |
 |---|---|---|
@@ -264,7 +266,9 @@ The CVM core is the minimal signing oracle. It runs inside the confidential VM, 
 | `attestation.rs` | AMD SEV-SNP attestation report generation via `/dev/sev-guest` | ~40 |
 | **Total** | | **~670** |
 
-The CVM communicates with the wrapper over vsock using a fixed binary protocol. No ASN.1 parsing occurs inside the CVM — the binary protocol uses explicit lengths and fixed-width fields. See [Enclave Interface](09-enclave-interface.md) for the full protocol specification.
+The CVM communicates with the wrapper over vsock using a fixed binary protocol.
+No ASN.1 parsing occurs inside the CVM — the binary protocol uses explicit lengths and fixed-width fields.
+See [Enclave Interface](09-enclave-interface.md) for the full protocol specification.
 
 **Wrapper (outside CVM — updatable independently):**
 
@@ -279,7 +283,10 @@ The wrapper handles all protocol complexity that does not affect the signing tru
 | vsock client | Connects to CVM, sends binary requests, receives responses |
 | Configuration | Loads certificates (ECDSA cert + CA chain), policy configuration |
 
-**Security boundary:** The wrapper holds no key material. A compromised wrapper cannot forge timestamps — it can only deny service or return malformed responses that fail client-side signature verification. The trust boundary is the vsock connection between the wrapper and CVM core.
+**Security boundary:** The wrapper holds no key material.
+A compromised wrapper cannot forge timestamps —
+it can only deny service or return malformed responses that fail client-side signature verification.
+The trust boundary is the vsock connection between the wrapper and CVM core.
 
 ---
 
@@ -516,7 +523,13 @@ The load balancer selects a coordinator node (round-robin or based on affinity) 
 
 If validation fails, the coordinator returns a `TimeStampResp` with an appropriate error status (e.g., `badAlg`, `badRequest`).
 
-> **Note on two-layer split:** In the two-layer architecture, Phases 1–2 (request receipt and validation) and Phases 7–8 (CMS assembly and response delivery) are handled by the wrapper outside the CVM. Phases 3–6 (time acquisition, TSTInfo construction, signing) are handled by the CVM core. The wrapper forwards the validated hash algorithm, digest, and nonce to the CVM via a binary vsock protocol. The CVM returns the TSTInfo DER, signedAttrs DER, and ECDSA signature. The wrapper assembles the CMS SignedData and TimeStampResp.
+> **Note on two-layer split:** In the two-layer architecture,
+> Phases 1–2 (request receipt and validation) and Phases 7–8 (CMS assembly and response delivery)
+> are handled by the wrapper outside the CVM.
+> Phases 3–6 (time acquisition, TSTInfo construction, signing) are handled by the CVM core.
+> The wrapper forwards the validated hash algorithm, digest, and nonce to the CVM
+> via a binary vsock protocol. The CVM returns the TSTInfo DER, signedAttrs DER, and ECDSA signature.
+> The wrapper assembles the CMS SignedData and TimeStampResp.
 
 **Phase 3 — Trusted Time Acquisition.** The coordinator obtains a trusted timestamp by reading the hardware TSC via SecureTSC
 and cross-validating against NTS-authenticated NTP sources using the TriHaRd Byzantine fault-tolerant protocol.

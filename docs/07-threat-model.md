@@ -398,7 +398,9 @@ this is why the transition to PQC verification must complete before quantum comp
 5. The attacker could return cached or replayed responses, but nonce verification (when used) prevents replay
 6. The attacker could deny service by dropping requests or returning errors
 
-**Result**: Forgery fails. The wrapper's position outside the trust boundary limits its attack surface to denial of service and detectable digest substitution. This is the intended security property of the two-layer architecture.
+**Result**: Forgery fails. The wrapper's position outside the trust boundary limits its attack surface
+to denial of service and detectable digest substitution.
+This is the intended security property of the two-layer architecture.
 
 ---
 
