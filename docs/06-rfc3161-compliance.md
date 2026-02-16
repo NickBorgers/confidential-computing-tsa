@@ -725,6 +725,30 @@ However, the ML-DSA-65 signature -- already present in every token issued since 
 and provides continued assurance that the timestamp was issued by the CC-TSA at the stated time.
 No retroactive action is needed for the CC-TSA's timestamps to remain verifiable in a post-quantum world.
 
+### Single-Token Multi-Provider Assurance
+
+Standard RFC 3161 clients and PDF signing tools are designed around a single TSA endpoint.
+The RFC 3161 protocol is single-request/single-response:
+a client sends one `TimeStampReq` to one TSA URL and receives one `TimeStampResp`.
+PDF signing libraries (PAdES, Adobe Acrobat, iText, PDFBox)
+configure a single TSA URL per document signature.
+No standard client queries multiple TSAs
+or bundles multiple tokens for provider-diversity purposes.
+
+The CC-TSA cross-provider threshold design takes advantage of this reality:
+because the 3-of-5 threshold signing cluster is distributed
+across multiple cloud providers (2+2+1),
+every token inherently carries multi-provider assurance
+without requiring any client-side changes.
+A standard RFC 3161 client points at the CC-TSA endpoint, receives a single token,
+and that token is guaranteed to have been co-signed by nodes spanning multiple providers.
+
+This is a key practical advantage over alternative architectures
+(such as deploying independent single-provider TSAs)
+that would require clients to interact with multiple TSAs
+and implement custom logic to collect, store, and reason about multiple tokens per artifact —
+a workflow no existing RFC 3161 client or PDF signing tool supports.
+
 ---
 
 ## 7. Accuracy Field
