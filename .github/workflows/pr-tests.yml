@@ -40,9 +40,19 @@ jobs:
       docs: ${{ steps.filter.outputs.docs }}
       code: ${{ steps.filter.outputs.code }}
       docker: ${{ steps.filter.outputs.docker }}
+      has_cargo_toml: ${{ steps.check-files.outputs.has_cargo_toml }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Check for key files
+        id: check-files
+        run: |
+          if [ -f Cargo.toml ]; then
+            echo "has_cargo_toml=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_cargo_toml=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Check for changes
         uses: dorny/paths-filter@v3
@@ -94,7 +104,7 @@ jobs:
   unit-tests:
     name: Unit Tests (Required for PR Merge)
     needs: changes
-    if: needs.changes.outputs.code == 'true' && hashFiles('Cargo.toml') != ''
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.has_cargo_toml == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -126,7 +136,7 @@ jobs:
   integration-tests:
     name: Integration Tests (Required for PR Merge)
     needs: changes
-    if: needs.changes.outputs.code == 'true' && hashFiles('Cargo.toml') != ''
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.has_cargo_toml == 'true'
     runs-on: ubuntu-latest
 
     steps:
