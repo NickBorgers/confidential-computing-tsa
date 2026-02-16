@@ -1,10 +1,17 @@
 # Confidential Computing Timestamp Authority (CC-TSA)
 
-A **quantum-safe, hardware-attested Timestamp Authority** built on distributed cryptographic proof. Every timestamp token is signed inside AMD SEV-SNP confidential VMs using threshold cryptography — the signing key never exists in any single location, the clock is hardware-protected, and the output is a standard RFC 3161 token with hybrid classical + post-quantum signatures.
+A **quantum-safe, hardware-attested Timestamp Authority** built on distributed cryptographic proof.
+Every timestamp token is signed inside AMD SEV-SNP confidential VMs using threshold cryptography —
+the signing key never exists in any single location, the clock is hardware-protected,
+and the output is a standard RFC 3161 token with hybrid classical + post-quantum signatures.
 
 ## Why Replace Traditional TSAs?
 
-Traditional Timestamp Authorities (RFC 3161) protect their signing keys and clocks using **certified HSMs** — for example, DigiStamp runs its entire timestamping function inside a FIPS 140-2 Level 4 IBM 4767 coprocessor, where the private key is generated in no-export mode, the clock is hardware-protected with drift adjustments limited to 120 seconds per 24-hour period, and any physical tampering destroys the key material. These are genuine hardware protections, not merely organizational policies.
+Traditional Timestamp Authorities (RFC 3161) protect their signing keys and clocks using **certified HSMs** —
+for example, DigiStamp runs its entire timestamping function inside a FIPS 140-2 Level 4 IBM 4767 coprocessor,
+where the private key is generated in no-export mode, the clock is hardware-protected with drift adjustments
+limited to 120 seconds per 24-hour period, and any physical tampering destroys the key material.
+These are genuine hardware protections, not merely organizational policies.
 
 CC-TSA takes a different architectural approach — replacing a single trusted HSM with **distributed cryptographic attestation** and **threshold signing across multiple independent enclaves**:
 

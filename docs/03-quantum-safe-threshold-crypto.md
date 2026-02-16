@@ -1,6 +1,9 @@
 # Quantum-Safe Threshold Cryptography & Key Management
 
-This document describes the cryptographic algorithms, threshold signing protocol, distributed key generation ceremony, and key lifecycle management used by the Confidential Computing Timestamp Authority (CC-TSA). For system architecture and deployment topology, see [Architecture Overview](01-architecture-overview.md). For the hardware-attested execution environment that protects key shares at runtime, see [Confidential Computing and Time](02-confidential-computing-and-time.md).
+This document describes the cryptographic algorithms, threshold signing protocol, distributed key generation ceremony, and key lifecycle management
+used by the Confidential Computing Timestamp Authority (CC-TSA). For system architecture and deployment topology,
+see [Architecture Overview](01-architecture-overview.md). For the hardware-attested execution environment that protects key shares at runtime,
+see [Confidential Computing and Time](02-confidential-computing-and-time.md).
 
 ---
 
@@ -17,11 +20,14 @@ This document describes the cryptographic algorithms, threshold signing protocol
 
 ## 1. Algorithm Selection
 
-CC-TSA uses a deliberate three-algorithm strategy: a primary post-quantum signature, a classical companion for backward compatibility, and a conservative hash-based backup for catastrophic lattice breaks. Every timestamp token carries the first two signatures simultaneously; the third is held in reserve.
+CC-TSA uses a deliberate three-algorithm strategy: a primary post-quantum signature, a classical companion for backward compatibility,
+and a conservative hash-based backup for catastrophic lattice breaks. Every timestamp token carries the first two signatures simultaneously;
+the third is held in reserve.
 
 ### Primary: ML-DSA-65 (FIPS 204)
 
-ML-DSA-65 is the NIST post-quantum digital signature standard, formerly known as CRYSTALS-Dilithium. It provides Security Level 3 (~143-bit classical security, ~128-bit quantum security) based on the hardness of the Module Learning With Errors (Module-LWE) problem.
+ML-DSA-65 is the NIST post-quantum digital signature standard, formerly known as CRYSTALS-Dilithium.
+It provides Security Level 3 (~143-bit classical security, ~128-bit quantum security) based on the hardness of the Module Learning With Errors (Module-LWE) problem.
 
 Key characteristics:
 
@@ -30,7 +36,10 @@ Key characteristics:
 - **Signing performance**: ~100,000 signatures/sec on modern hardware — more than sufficient for TSA workloads
 - **Verification performance**: ~100,000 verifications/sec
 
-**Why ML-DSA-65 and not ML-DSA-44 or ML-DSA-87?** Security Level 3 strikes the right balance between security margin and operational efficiency. ML-DSA-44 (Level 2) provides ~107-bit classical / ~99-bit quantum security, which falls below conservative recommendations for timestamps that may need to remain valid for decades. ML-DSA-87 (Level 5) roughly doubles the signature size to ~4,627 bytes with diminishing security returns — the jump from 128-bit to 192-bit quantum security does not justify the bandwidth and storage cost for every timestamp token.
+**Why ML-DSA-65 and not ML-DSA-44 or ML-DSA-87?** Security Level 3 strikes the right balance between security margin and operational efficiency.
+ML-DSA-44 (Level 2) provides ~107-bit classical / ~99-bit quantum security, which falls below conservative recommendations for timestamps
+that may need to remain valid for decades. ML-DSA-87 (Level 5) roughly doubles the signature size to ~4,627 bytes with diminishing security returns —
+the jump from 128-bit to 192-bit quantum security does not justify the bandwidth and storage cost for every timestamp token.
 
 ### Classical Companion: ECDSA P-384
 
@@ -43,11 +52,15 @@ Key characteristics:
 - **Signing performance**: ~50,000 signatures/sec
 - **Verification performance**: ~20,000 verifications/sec
 
-Every CC-TSA timestamp token carries **both** an ECDSA P-384 signature and an ML-DSA-65 signature. Classical verifiers process the ECDSA signature and ignore the ML-DSA `SignerInfo`; quantum-aware verifiers can validate both. This hybrid approach ensures that tokens are verifiable today and remain secure against future quantum attacks. See [RFC 3161 Compliance](06-rfc3161-compliance.md) for details on the dual-`SignerInfo` CMS structure.
+Every CC-TSA timestamp token carries **both** an ECDSA P-384 signature and an ML-DSA-65 signature.
+Classical verifiers process the ECDSA signature and ignore the ML-DSA `SignerInfo`; quantum-aware verifiers can validate both.
+This hybrid approach ensures that tokens are verifiable today and remain secure against future quantum attacks.
+See [RFC 3161 Compliance](06-rfc3161-compliance.md) for details on the dual-`SignerInfo` CMS structure.
 
 ### Conservative Backup: SLH-DSA-128f (FIPS 205)
 
-SLH-DSA-128f (formerly SPHINCS+) is a stateless hash-based signature scheme. Its security relies exclusively on the collision resistance of the underlying hash function — it would survive even a complete break of lattice-based cryptography.
+SLH-DSA-128f (formerly SPHINCS+) is a stateless hash-based signature scheme. Its security relies exclusively on the collision resistance
+of the underlying hash function — it would survive even a complete break of lattice-based cryptography.
 
 Key characteristics:
 
@@ -56,7 +69,9 @@ Key characteristics:
 - **Signing performance**: ~100 signatures/sec (much slower than ML-DSA-65)
 - **Verification performance**: ~1,000 verifications/sec
 
-SLH-DSA-128f is **not used in normal operation**. It serves as an emergency fallback: if ML-DSA is cryptanalytically broken, CC-TSA can perform a new DKG ceremony using SLH-DSA and resume signing with a new certificate — at reduced throughput, but with uncompromised security. See [Failure Modes and Recovery](04-failure-modes-and-recovery.md) for the activation procedure.
+SLH-DSA-128f is **not used in normal operation**. It serves as an emergency fallback: if ML-DSA is cryptanalytically broken,
+CC-TSA can perform a new DKG ceremony using SLH-DSA and resume signing with a new certificate — at reduced throughput, but with uncompromised security.
+See [Failure Modes and Recovery](04-failure-modes-and-recovery.md) for the activation procedure.
 
 ### Algorithm Comparison Table
 
@@ -76,7 +91,9 @@ SLH-DSA-128f is **not used in normal operation**. It serves as an emergency fall
 
 ## 2. Hybrid Token Structure
 
-Each CC-TSA timestamp token is a standard CMS `SignedData` structure (RFC 5652) containing RFC 3161 `TSTInfo` content, signed by **two** `SignerInfo` entries — one classical (ECDSA P-384) and one post-quantum (ML-DSA-65). Both signatures cover the identical `TSTInfo` payload.
+Each CC-TSA timestamp token is a standard CMS `SignedData` structure (RFC 5652) containing RFC 3161 `TSTInfo` content,
+signed by **two** `SignerInfo` entries — one classical (ECDSA P-384) and one post-quantum (ML-DSA-65).
+Both signatures cover the identical `TSTInfo` payload.
 
 ```mermaid
 graph TD
@@ -133,7 +150,8 @@ graph TD
 
 **Verification modes:**
 
-- **Classical-only verifier**: Validates `SignerInfo #1` (ECDSA P-384), ignores `SignerInfo #2`. Uses the ECDSA TSA certificate from the `certificates` field. This is the standard RFC 3161 verification path and works with all existing tooling.
+- **Classical-only verifier**: Validates `SignerInfo #1` (ECDSA P-384), ignores `SignerInfo #2`. Uses the ECDSA TSA certificate from the `certificates` field.
+This is the standard RFC 3161 verification path and works with all existing tooling.
 - **Quantum-aware verifier**: Validates `SignerInfo #2` (ML-DSA-65), optionally also validates `SignerInfo #1`. Uses the ML-DSA TSA certificate. Provides quantum-safe assurance.
 - **Belt-and-suspenders verifier**: Validates both `SignerInfo` entries and requires both to pass. Highest assurance — detects compromise of either algorithm.
 
@@ -145,9 +163,16 @@ For full details on the CMS encoding, OID assignments, and backward compatibilit
 
 ### Background
 
-Traditional threshold signatures split a signing key into **shares** distributed across multiple parties. Any subset of **t** shares (from a total of **n**) can collaborate to produce a valid signature, but fewer than **t** shares reveal nothing about the key. The resulting signature is **indistinguishable** from a single-signer signature — verifiers do not need to know that a threshold scheme was used.
+Traditional threshold signatures split a signing key into **shares** distributed across multiple parties.
+Any subset of **t** shares (from a total of **n**) can collaborate to produce a valid signature,
+but fewer than **t** shares reveal nothing about the key. The resulting signature is **indistinguishable** from a single-signer signature —
+verifiers do not need to know that a threshold scheme was used.
 
-For ML-DSA, threshold protocols are based on recent cryptographic research. The CC-TSA design draws on the framework described in Cozzo & Smart ("Sharing the LUOV and ML-DSA", USENIX Security '26 research track), which adapts Shamir-style secret sharing and verifiable secret sharing to the lattice-based structure of ML-DSA. The key insight is that ML-DSA's signing operation — which involves sampling a masking vector, computing a commitment, and then a response — can be distributed across parties such that the masking and response are computed in shares, while the final combination yields a valid single-signer signature.
+For ML-DSA, threshold protocols are based on recent cryptographic research. The CC-TSA design draws on the framework described in
+Cozzo & Smart ("Sharing the LUOV and ML-DSA", USENIX Security '26 research track), which adapts Shamir-style secret sharing
+and verifiable secret sharing to the lattice-based structure of ML-DSA. The key insight is that ML-DSA's signing operation —
+which involves sampling a masking vector, computing a commitment, and then a response — can be distributed across parties
+such that the masking and response are computed in shares, while the final combination yields a valid single-signer signature.
 
 ### Protocol Overview
 
@@ -160,7 +185,8 @@ CC-TSA uses a **3-of-5** threshold scheme:
 
 ### Threshold Signing Protocol (2 Rounds)
 
-The following diagram illustrates the two-round threshold signing protocol. The **Coordinator** is the enclave node that received the incoming timestamp request (via the load balancer); it also serves as one of the three signing participants.
+The following diagram illustrates the two-round threshold signing protocol. The **Coordinator** is the enclave node that received
+the incoming timestamp request (via the load balancer); it also serves as one of the three signing participants.
 
 ```mermaid
 sequenceDiagram
@@ -215,7 +241,9 @@ sequenceDiagram
 
 - The 2-round protocol requires two network round-trips between the coordinator and participants. Latency is dominated by network distance, not cryptographic computation.
 - The ECDSA threshold signing (for `SignerInfo #1`) runs in parallel using a similar 2-round protocol, well-studied for elliptic curves.
-- Rejection sampling in ML-DSA means that approximately 1 in 7 attempts will abort and require a retry from Round 1. This is inherent to the ML-DSA design and does not indicate an error. The expected number of rounds to produce a valid signature is approximately 7/6 (~1.17 attempts), contributing negligible overhead.
+- Rejection sampling in ML-DSA means that approximately 1 in 7 attempts will abort and require a retry from Round 1.
+This is inherent to the ML-DSA design and does not indicate an error. The expected number of rounds to produce a valid signature
+is approximately 7/6 (~1.17 attempts), contributing negligible overhead.
 - The overall signing latency is well within the 1-second end-to-end round-trip budget for all deployment topologies, including multi-provider configurations.
 
 **Security properties:**
@@ -232,7 +260,10 @@ For the full failure-mode analysis of threshold signing (e.g., a participant goi
 
 ### Overview
 
-Distributed Key Generation (DKG) is the cryptographic ceremony that creates the 3-of-5 threshold key shares without any single party — or any coalition of fewer than 3 parties — ever seeing the full private key. DKG runs on first boot when no key material exists, and again whenever the cluster must be reconstituted (e.g., after quorum loss or a software update requiring new key material). The protocol is based on Pedersen/Feldman verifiable secret sharing, adapted for the algebraic structure of ML-DSA over module lattices.
+Distributed Key Generation (DKG) is the cryptographic ceremony that creates the 3-of-5 threshold key shares without any single party —
+or any coalition of fewer than 3 parties — ever seeing the full private key. DKG runs on first boot when no key material exists,
+and again whenever the cluster must be reconstituted (e.g., after quorum loss or a software update requiring new key material).
+The protocol is based on Pedersen/Feldman verifiable secret sharing, adapted for the algebraic structure of ML-DSA over module lattices.
 
 **DKG outputs:**
 
@@ -319,12 +350,16 @@ sequenceDiagram
 
 **Security properties of DKG:**
 
-- **Verifiability**: Feldman's VSS commitments allow every node to verify that the sub-shares it received are consistent with the committed polynomial. A cheating node is detected and the ceremony aborts.
+- **Verifiability**: Feldman's VSS commitments allow every node to verify that the sub-shares it received are consistent
+with the committed polynomial. A cheating node is detected and the ceremony aborts.
 - **No trusted dealer**: There is no single party that generates and distributes shares. Each of the 5 nodes contributes equally to the key generation.
-- **Confidentiality**: Sub-shares are transmitted over attested TLS channels — encrypted point-to-point between mutually verified enclaves. No party outside the enclave cluster can observe the sub-shares.
-- **Robustness**: If any node fails during DKG (crash, attestation failure, commitment mismatch), the entire ceremony aborts and must be restarted from scratch. This is acceptable because the ceremony is automated and can be retried immediately.
+- **Confidentiality**: Sub-shares are transmitted over attested TLS channels — encrypted point-to-point between mutually verified enclaves.
+No party outside the enclave cluster can observe the sub-shares.
+- **Robustness**: If any node fails during DKG (crash, attestation failure, commitment mismatch), the entire ceremony aborts
+and must be restarted from scratch. This is acceptable because the ceremony is automated and can be retried immediately.
 
-A parallel DKG ceremony is run for the ECDSA P-384 threshold key, using the well-established Gennaro et al. protocol for elliptic curve threshold signatures. The same mutual attestation phase is shared between both ceremonies.
+A parallel DKG ceremony is run for the ECDSA P-384 threshold key, using the well-established Gennaro et al. protocol
+for elliptic curve threshold signatures. The same mutual attestation phase is shared between both ceremonies.
 
 For the operational procedures surrounding the DKG ceremony (scheduling, personnel, audit trail), see [Operations and Deployment](05-operations-and-deployment.md).
 
@@ -336,10 +371,15 @@ Key shares exist **only in enclave memory**. They are not persisted to durable s
 
 ### Design Properties
 
-- **No at-rest key material**: Key shares are never written to disk, cloud storage, or any medium outside the enclave's hardware-encrypted memory. If a node shuts down, reboots, or crashes, its key share is irrecoverably lost. This is by design.
-- **Eliminated attack surface**: There is no sealed key share to steal, no wrapping key to compromise, and no KMS policy to subvert. The only way to obtain a key share is to read it from a running enclave's memory — which AMD SEV-SNP is specifically designed to prevent.
-- **Simplified trust model**: The trust model does not depend on cloud KMS services or their attestation policy configurations. Trust is rooted entirely in the hardware attestation of the running enclave and the software measurement bound to the TSA certificate.
-- **Recovery by reconstitution**: If the cluster loses quorum (fewer than 3 nodes remain running), a new DKG ceremony is required. This produces new key shares, a new public key, and requires a new TSA certificate. Old timestamps signed under the previous certificate remain valid.
+- **No at-rest key material**: Key shares are never written to disk, cloud storage, or any medium outside the enclave's hardware-encrypted memory.
+If a node shuts down, reboots, or crashes, its key share is irrecoverably lost. This is by design.
+- **Eliminated attack surface**: There is no sealed key share to steal, no wrapping key to compromise, and no KMS policy to subvert.
+The only way to obtain a key share is to read it from a running enclave's memory — which AMD SEV-SNP is specifically designed to prevent.
+- **Simplified trust model**: The trust model does not depend on cloud KMS services or their attestation policy configurations.
+Trust is rooted entirely in the hardware attestation of the running enclave and the software measurement bound to the TSA certificate.
+- **Recovery by reconstitution**: If the cluster loses quorum (fewer than 3 nodes remain running), a new DKG ceremony is required.
+This produces new key shares, a new public key, and requires a new TSA certificate.
+Old timestamps signed under the previous certificate remain valid.
 
 ### Trade-offs
 
@@ -353,7 +393,8 @@ The ephemeral key model trades persistence for simplicity and security:
 | **Recovery from quorum loss** | New DKG + new certificate | Unseal existing shares from storage |
 | **Trust dependencies** | AMD SEV-SNP hardware only | AMD SEV-SNP + cloud KMS + attestation policy management |
 
-The ephemeral model is preferred because it eliminates the trust contradiction inherent in operator-managed KMS attestation policies. See [Architecture Overview](01-architecture-overview.md) Section 8 for the full rationale.
+The ephemeral model is preferred because it eliminates the trust contradiction inherent in operator-managed KMS attestation policies.
+See [Architecture Overview](01-architecture-overview.md) Section 8 for the full rationale.
 
 ---
 

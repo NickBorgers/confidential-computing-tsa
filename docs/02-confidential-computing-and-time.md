@@ -1,48 +1,69 @@
 # Confidential Computing & Trusted Time
 
-This document provides a deep technical treatment of the confidential computing technologies and trusted time mechanisms that underpin the CC-TSA system. It covers AMD SEV-SNP (the primary platform), Intel TDX (the alternative), the time trust chain from external NTS sources through SecureTSC to cross-node validation, and the attestation boot chain that establishes trust before any signing key is released.
+This document provides a deep technical treatment of the confidential computing technologies and trusted time mechanisms that underpin the CC-TSA system.
+It covers AMD SEV-SNP (the primary platform), Intel TDX (the alternative),
+the time trust chain from external NTS sources through SecureTSC to cross-node validation,
+and the attestation boot chain that establishes trust before any signing key is released.
 
-For the overall system architecture and component interactions, see [Architecture Overview](01-architecture-overview.md). For how the signing key is generated and used within these enclaves, see [Quantum-Safe Threshold Cryptography](03-quantum-safe-threshold-crypto.md).
+For the overall system architecture and component interactions, see [Architecture Overview](01-architecture-overview.md).
+For how the signing key is generated and used within these enclaves,
+see [Quantum-Safe Threshold Cryptography](03-quantum-safe-threshold-crypto.md).
 
 ---
 
 ## 1. AMD SEV-SNP Deep Dive
 
-AMD SEV-SNP (Secure Encrypted Virtualization - Secure Nested Paging) is the primary confidential computing platform for CC-TSA. It provides hardware-enforced memory isolation, integrity protection, and attestation for virtual machines, removing the hypervisor and cloud provider from the Trusted Computing Base (TCB).
+AMD SEV-SNP (Secure Encrypted Virtualization - Secure Nested Paging) is the primary confidential computing platform for CC-TSA.
+It provides hardware-enforced memory isolation, integrity protection, and attestation for virtual machines,
+removing the hypervisor and cloud provider from the Trusted Computing Base (TCB).
 
 ### Memory Encryption
 
 AMD's confidential computing stack builds on two foundational technologies:
 
-- **Secure Memory Encryption (SME)**: Encrypts all of DRAM using a single ephemeral key managed by the AMD Secure Processor (AMD-SP). SME is transparent to software and protects against physical memory snooping (cold boot attacks, DRAM interposers).
+- **Secure Memory Encryption (SME)**: Encrypts all of DRAM using a single ephemeral key managed by the AMD Secure Processor (AMD-SP).
+SME is transparent to software and protects against physical memory snooping (cold boot attacks, DRAM interposers).
 
-- **Secure Encrypted Virtualization (SEV)**: Extends SME by assigning a unique AES-128-XEX encryption key to each virtual machine. Each VM's memory is encrypted with its own key, so neither the hypervisor nor other VMs can read its contents.
+- **Secure Encrypted Virtualization (SEV)**: Extends SME by assigning a unique AES-128-XEX encryption key to each virtual machine.
+Each VM's memory is encrypted with its own key, so neither the hypervisor nor other VMs can read its contents.
 
-SEV-SNP adds **Secure Nested Paging**, which introduces the **Reverse Map Table (RMP)**. The RMP is a hardware-enforced data structure that records the ownership of every 4KB physical page. Each page is assigned to exactly one VM (or the hypervisor), and the hardware enforces that only the owner can read or write that page. This prevents the following attacks that earlier SEV generations were vulnerable to:
+SEV-SNP adds **Secure Nested Paging**, which introduces the **Reverse Map Table (RMP)**.
+The RMP is a hardware-enforced data structure that records the ownership of every 4KB physical page.
+Each page is assigned to exactly one VM (or the hypervisor), and the hardware enforces that only the owner can read or write that page.
+This prevents the following attacks that earlier SEV generations were vulnerable to:
 
 - **Replay attacks**: The hypervisor cannot swap an old encrypted page back in; the RMP tracks the current valid mapping.
 - **Remapping attacks**: The hypervisor cannot map the same encrypted page at two different guest-physical addresses.
 - **Memory aliasing**: The hardware ensures a 1:1 mapping between guest-physical and host-physical pages.
 
-The encryption uses **AES-128-XEX** mode with a per-VM key that is generated and managed entirely by the AMD-SP. The key never leaves the AMD-SP and is not accessible to any software, including the hypervisor. This means that even a fully compromised hypervisor cannot decrypt guest memory.
+The encryption uses **AES-128-XEX** mode with a per-VM key that is generated and managed entirely by the AMD-SP.
+The key never leaves the AMD-SP and is not accessible to any software, including the hypervisor.
+This means that even a fully compromised hypervisor cannot decrypt guest memory.
 
-For CC-TSA, this means that the threshold key share held by each enclave node is protected by hardware encryption. The cloud provider's administrators, the hypervisor, and co-tenant VMs cannot access the key share or any intermediate signing state.
+For CC-TSA, this means that the threshold key share held by each enclave node is protected by hardware encryption.
+The cloud provider's administrators, the hypervisor, and co-tenant VMs cannot access the key share or any intermediate signing state.
 
 ### Virtual Machine Privilege Levels (VMPL)
 
-SEV-SNP introduces four **Virtual Machine Privilege Levels** (VMPL0 through VMPL3), where VMPL0 is the most privileged and VMPL3 is the least. This provides in-guest privilege separation without any reliance on the hypervisor:
+SEV-SNP introduces four **Virtual Machine Privilege Levels** (VMPL0 through VMPL3),
+where VMPL0 is the most privileged and VMPL3 is the least.
+This provides in-guest privilege separation without any reliance on the hypervisor:
 
-- **VMPL0**: Reserved for the **Secure VM Service Module (SVSM)**, a small trusted component that provides services like vTPM emulation and attestation to higher VMPLs. The SVSM is measured at launch and runs with full access to guest memory.
+- **VMPL0**: Reserved for the **Secure VM Service Module (SVSM)**, a small trusted component that provides services like vTPM emulation
+and attestation to higher VMPLs. The SVSM is measured at launch and runs with full access to guest memory.
 - **VMPL1-2**: The guest operating system and kernel. The guest kernel at VMPL1 can restrict what VMPL2 can access.
 - **VMPL3**: Least privileged. Suitable for untrusted or minimally trusted guest components.
 
-The RMP enforces VMPL permissions per-page: a page can be configured so that only VMPL0 can write it but VMPL1 can read it, for example. This allows the SVSM to maintain integrity of critical data structures (like the vTPM state or attestation parameters) even if the guest OS is partially compromised.
+The RMP enforces VMPL permissions per-page: a page can be configured so that only VMPL0 can write it but VMPL1 can read it, for example.
+This allows the SVSM to maintain integrity of critical data structures (like the vTPM state or attestation parameters)
+even if the guest OS is partially compromised.
 
 For CC-TSA, the SVSM at VMPL0 can protect the SecureTSC parameters and attestation state from tampering by higher-level guest software, adding an additional layer of defense in depth.
 
 ### Attestation
 
-AMD SEV-SNP attestation is the mechanism by which a remote party can verify that a VM is running the expected code on genuine AMD hardware with the correct security configuration. This is the foundation of the CC-TSA trust model.
+AMD SEV-SNP attestation is the mechanism by which a remote party can verify that a VM is running the expected code
+on genuine AMD hardware with the correct security configuration. This is the foundation of the CC-TSA trust model.
 
 **Launch measurement**: When the hypervisor requests the AMD-SP to launch an SEV-SNP guest, the AMD-SP measures the initial guest state:
 - The OVMF (Open Virtual Machine Firmware) image
@@ -51,7 +72,8 @@ AMD SEV-SNP attestation is the mechanism by which a remote party can verify that
 
 This measurement is recorded in the guest's launch digest, analogous to TPM PCR values.
 
-**Runtime attestation reports**: At any point after launch, the guest can request an attestation report from the AMD-SP via the `SNP_GUEST_REQUEST` interface (exposed as `/dev/sev-guest` in Linux). The attestation report contains:
+**Runtime attestation reports**: At any point after launch, the guest can request an attestation report from the AMD-SP
+via the `SNP_GUEST_REQUEST` interface (exposed as `/dev/sev-guest` in Linux). The attestation report contains:
 
 | Field | Description |
 |---|---|
@@ -68,20 +90,29 @@ This measurement is recorded in the guest's launch digest, analogous to TPM PCR 
 - **VLEK (Versioned Loaded Endorsement Key)**: Alternative to VCEK, provisioned by AMD to cloud providers. Allows attestation without revealing which specific chip is in use (privacy enhancement).
 - The VCEK/VLEK chains up to AMD's **ASK (AMD SEV Signing Key)** and then to the **ARK (AMD Root Key)**.
 
-For CC-TSA, remote attestation is the gating mechanism for DKG participation. During the mutual attestation phase of each DKG ceremony, every peer node verifies the attestation report of every other node. If the measurement does not match the expected value, or if the policy flags indicate debugging is enabled, the node is rejected from the DKG ceremony and does not receive a key share. See [Architecture Overview](01-architecture-overview.md) for how this fits into the deployment flow.
+For CC-TSA, remote attestation is the gating mechanism for DKG participation.
+During the mutual attestation phase of each DKG ceremony, every peer node verifies the attestation report of every other node.
+If the measurement does not match the expected value, or if the policy flags indicate debugging is enabled,
+the node is rejected from the DKG ceremony and does not receive a key share.
+See [Architecture Overview](01-architecture-overview.md) for how this fits into the deployment flow.
 
 ### SecureTSC
 
 SecureTSC is the critical AMD feature that makes CC-TSA's trusted time model possible.
 
-**The problem with traditional TSC**: The x86 Time Stamp Counter (TSC) is a hardware counter that increments at a fixed rate. In a virtualized environment, the hypervisor controls the TSC offset and scaling factor that the guest sees. A malicious or compromised hypervisor could manipulate these parameters to make the guest perceive a different time than reality. For a Timestamp Authority, this is a fundamental threat: if the hypervisor controls the clock, the hypervisor can forge timestamps.
+**The problem with traditional TSC**: The x86 Time Stamp Counter (TSC) is a hardware counter that increments at a fixed rate.
+In a virtualized environment, the hypervisor controls the TSC offset and scaling factor that the guest sees.
+A malicious or compromised hypervisor could manipulate these parameters to make the guest perceive a different time than reality.
+For a Timestamp Authority, this is a fundamental threat: if the hypervisor controls the clock, the hypervisor can forge timestamps.
 
 **How SecureTSC works**: SecureTSC removes the hypervisor from the TSC trust chain:
 
 1. At VM launch, the **AMD-SP** determines the TSC parameters:
    - **TSC frequency**: The actual frequency of the hardware TSC oscillator.
    - **Initial TSC offset**: The TSC value at the time of guest initialization.
-2. These parameters are communicated to the guest through a **secure, encrypted channel** — specifically, they are placed in the guest's encrypted memory region that only the AMD-SP and the guest can access. The hypervisor cannot read or modify these values.
+2. These parameters are communicated to the guest through a **secure, encrypted channel** — specifically,
+they are placed in the guest's encrypted memory region that only the AMD-SP and the guest can access.
+The hypervisor cannot read or modify these values.
 3. When the guest executes `RDTSC` or `RDTSCP`, the hardware returns the actual TSC value. The guest uses the AMD-SP-provided parameters to convert this to wall-clock time.
 4. The hypervisor **cannot intercept, modify, or inject** TSC values seen by the guest because the TSC is read directly from hardware and the calibration parameters are in encrypted memory.
 
@@ -92,36 +123,50 @@ SecureTSC is the critical AMD feature that makes CC-TSA's trusted time model pos
 - Crystal oscillator drift: typically <1 ppm (parts per million), which equates to approximately 86 microseconds per day
 - Between NTS calibration queries (e.g., every 64 seconds), drift accumulates to <64 microseconds
 
-For CC-TSA, SecureTSC is the foundation of the time trust chain. It provides a tamper-resistant, high-resolution time source inside the enclave that the cloud provider cannot manipulate. Combined with NTS-authenticated external time sources and cross-node validation, it delivers the trusted time guarantees required by a Timestamp Authority. See Section 3 (Time Trust Chain) for the full picture.
+For CC-TSA, SecureTSC is the foundation of the time trust chain.
+It provides a tamper-resistant, high-resolution time source inside the enclave that the cloud provider cannot manipulate.
+Combined with NTS-authenticated external time sources and cross-node validation,
+it delivers the trusted time guarantees required by a Timestamp Authority.
+See Section 3 (Time Trust Chain) for the full picture.
 
 ---
 
 ## 2. Intel TDX Alternative
 
-Intel Trust Domain Extensions (TDX) is the alternative confidential computing platform supported by CC-TSA. While AMD SEV-SNP is the primary recommendation due to SecureTSC, TDX provides a viable alternative for deployments where AMD hardware is unavailable or where Intel-specific features are required.
+Intel Trust Domain Extensions (TDX) is the alternative confidential computing platform supported by CC-TSA.
+While AMD SEV-SNP is the primary recommendation due to SecureTSC,
+TDX provides a viable alternative for deployments where AMD hardware is unavailable or where Intel-specific features are required.
 
 ### Architecture
 
 TDX provides hardware-isolated virtual machines called **Trust Domains (TDs)**:
 
-- **TDX Module**: A software module loaded as an Intel **Authenticated Code Module (ACM)** that runs in a new CPU mode called **SEAM (Secure Arbitration Mode)**. The TDX Module mediates all interactions between a TD and the Virtual Machine Monitor (VMM). It is measured and authenticated by the CPU microcode at load time.
+- **TDX Module**: A software module loaded as an Intel **Authenticated Code Module (ACM)** that runs in a new CPU mode
+called **SEAM (Secure Arbitration Mode)**. The TDX Module mediates all interactions between a TD and the Virtual Machine Monitor (VMM).
+It is measured and authenticated by the CPU microcode at load time.
 
 - **Memory encryption**: Each TD's memory is encrypted with **AES-128-XTS** using a per-TD key managed by the TDX Module and the CPU's memory encryption engine. The VMM cannot read TD-private memory.
 
-- **Integrity protection**: TDX maintains an **integrity directory** for TD-owned pages. This protects against replay and remapping attacks, similar in purpose to AMD's RMP but implemented differently (using a MAC-based integrity tree rather than an ownership table).
+- **Integrity protection**: TDX maintains an **integrity directory** for TD-owned pages. This protects against replay and remapping attacks,
+similar in purpose to AMD's RMP but implemented differently (using a MAC-based integrity tree rather than an ownership table).
 
-- **Attestation**: TDs can generate attestation quotes via the **Intel Quoting Enclave (QE)**. The quote contains the TD's measurement (MRTD, RTMR values) and is signed with an Intel-provisioned attestation key. Verification chains to Intel's provisioning infrastructure.
+- **Attestation**: TDs can generate attestation quotes via the **Intel Quoting Enclave (QE)**.
+The quote contains the TD's measurement (MRTD, RTMR values) and is signed with an Intel-provisioned attestation key.
+Verification chains to Intel's provisioning infrastructure.
 
 ### Virtualized TSC
 
 TDX virtualizes the TSC, but with a different trust model than SecureTSC:
 
 - The **TDX Module** provides a TSC offset to the TD, ensuring that the VMM cannot arbitrarily shift the TD's perception of time.
-- However, the **VMM still configures some TSC parameters**, notably the frequency multiplier. The TDX Module does not independently calibrate the TSC frequency from a hardware root of trust the way AMD-SP does with SecureTSC.
+- However, the **VMM still configures some TSC parameters**, notably the frequency multiplier.
+The TDX Module does not independently calibrate the TSC frequency from a hardware root of trust the way AMD-SP does with SecureTSC.
 - This means that while the VMM cannot make arbitrary TSC jumps, it has more influence over the TD's time perception compared to AMD SEV-SNP with SecureTSC.
 - Intel has indicated plans for **hardware-backed TSC** in future TDX generations, which would close this gap.
 
-For CC-TSA on TDX, the time trust chain relies more heavily on NTS-authenticated NTP for absolute time accuracy, with the virtualized TSC providing interpolation between queries. The TriHaRd cross-node validation protocol (Section 6) provides an additional safeguard against TSC manipulation.
+For CC-TSA on TDX, the time trust chain relies more heavily on NTS-authenticated NTP for absolute time accuracy,
+with the virtualized TSC providing interpolation between queries.
+The TriHaRd cross-node validation protocol (Section 6) provides an additional safeguard against TSC manipulation.
 
 ### Comparison Table
 
@@ -136,7 +181,9 @@ For CC-TSA on TDX, the time trust chain relies more heavily on NTS-authenticated
 | Maturity | GA (Azure, GCP) | Preview (Azure, GCP) |
 | **CC-TSA recommendation** | **Primary** (SecureTSC advantage) | **Alternative** (viable when SecureTSC not needed) |
 
-The key differentiator for CC-TSA is **SecureTSC**: AMD's hardware-rooted time source provides stronger guarantees than TDX's VMM-configured TSC. If Intel delivers hardware-backed TSC in a future TDX generation, the two platforms would be on more equal footing for TSA use cases.
+The key differentiator for CC-TSA is **SecureTSC**: AMD's hardware-rooted time source provides stronger guarantees
+than TDX's VMM-configured TSC. If Intel delivers hardware-backed TSC in a future TDX generation,
+the two platforms would be on more equal footing for TSA use cases.
 
 ---
 
@@ -199,15 +246,27 @@ flowchart TB
 
 ### Layer 1: External Time Sources
 
-Four or more NTS-authenticated NTP servers (RFC 8915) provide the UTC reference. These are Stratum-1 sources with GPS or atomic clock references, offering approximately 1ms accuracy over the network. Using four sources enables Byzantine fault tolerance: the system can tolerate one malicious or faulty source out of four. See Section 5 for NTS details.
+Four or more NTS-authenticated NTP servers (RFC 8915) provide the UTC reference.
+These are Stratum-1 sources with GPS or atomic clock references, offering approximately 1ms accuracy over the network.
+Using four sources enables Byzantine fault tolerance: the system can tolerate one malicious or faulty source out of four.
+See Section 5 for NTS details.
 
 ### Layer 2: SecureTSC Interpolation
 
-Between NTS queries, the AMD Secure Processor's calibrated TSC provides nanosecond-resolution time interpolation. The AMD-SP communicates the TSC frequency and initial offset to the guest via an encrypted channel at boot. The guest reads `RDTSC` and converts ticks to wall-clock time using these parameters. Crystal drift is typically less than 1 ppm, meaning less than 64 microseconds of drift between NTS queries at a 64-second polling interval. See Section 4 for the calibration sequence.
+Between NTS queries, the AMD Secure Processor's calibrated TSC provides nanosecond-resolution time interpolation.
+The AMD-SP communicates the TSC frequency and initial offset to the guest via an encrypted channel at boot.
+The guest reads `RDTSC` and converts ticks to wall-clock time using these parameters.
+Crystal drift is typically less than 1 ppm, meaning less than 64 microseconds of drift between NTS queries at a 64-second polling interval.
+See Section 4 for the calibration sequence.
 
 ### Layer 3: Monotonic Clock Enforcement
 
-A software layer combines the absolute UTC reference from NTS with the high-resolution SecureTSC interpolation. A Kalman filter (or similar estimation algorithm) smooths corrections from NTS, applying small adjustments to the SecureTSC-derived time rather than large jumps. The critical invariant is **monotonicity**: timestamps never go backward. If an NTS correction would move time backward, the correction is applied gradually by slowing the clock rate until the discrepancy is absorbed.
+A software layer combines the absolute UTC reference from NTS with the high-resolution SecureTSC interpolation.
+A Kalman filter (or similar estimation algorithm) smooths corrections from NTS,
+applying small adjustments to the SecureTSC-derived time rather than large jumps.
+The critical invariant is **monotonicity**: timestamps never go backward.
+If an NTS correction would move time backward, the correction is applied gradually
+by slowing the clock rate until the discrepancy is absorbed.
 
 ### Layer 4: TriHaRd Cross-Node Validation
 
@@ -274,11 +333,13 @@ sequenceDiagram
 
 The calibration process is critical because it establishes the relationship between raw TSC ticks and wall-clock time:
 
-1. **Frequency determination**: The AMD-SP reads the TSC frequency from the hardware crystal oscillator. This is a fixed property of the physical CPU and cannot be influenced by the hypervisor. Typical frequencies are in the range of 2-4 GHz.
+1. **Frequency determination**: The AMD-SP reads the TSC frequency from the hardware crystal oscillator.
+This is a fixed property of the physical CPU and cannot be influenced by the hypervisor. Typical frequencies are in the range of 2-4 GHz.
 
 2. **Offset recording**: The AMD-SP records the TSC value at the moment of guest initialization. This provides the reference point for all subsequent time calculations.
 
-3. **Secure delivery**: The frequency and offset are placed in the guest's encrypted memory region. The hypervisor never sees these values in plaintext. The guest firmware (OVMF) reads them from this protected region.
+3. **Secure delivery**: The frequency and offset are placed in the guest's encrypted memory region.
+The hypervisor never sees these values in plaintext. The guest firmware (OVMF) reads them from this protected region.
 
 4. **Wall-clock computation**: The guest computes wall-clock time as:
    ```
@@ -286,7 +347,9 @@ The calibration process is critical because it establishes the relationship betw
    ```
    This gives a monotonically increasing time value with sub-nanosecond resolution.
 
-5. **NTS correction**: Over hours and days, the crystal oscillator drifts slightly (less than 1 ppm). NTS-authenticated NTP queries provide the absolute UTC reference to correct this drift. Corrections are applied gradually to maintain monotonicity.
+5. **NTS correction**: Over hours and days, the crystal oscillator drifts slightly (less than 1 ppm).
+NTS-authenticated NTP queries provide the absolute UTC reference to correct this drift.
+Corrections are applied gradually to maintain monotonicity.
 
 ---
 
@@ -305,11 +368,15 @@ For a Timestamp Authority, any of these attacks could result in timestamps with 
 
 **Network Time Security (NTS)**, defined in RFC 8915, addresses these vulnerabilities by adding cryptographic authentication to NTP:
 
-1. **NTS Key Exchange (NTS-KE)**: The client and server perform a TLS 1.3 handshake to establish shared key material. This authenticates the server (via its TLS certificate) and provides the keys used to protect subsequent NTP packets.
+1. **NTS Key Exchange (NTS-KE)**: The client and server perform a TLS 1.3 handshake to establish shared key material.
+This authenticates the server (via its TLS certificate) and provides the keys used to protect subsequent NTP packets.
 
-2. **AEAD-protected NTP packets**: After key exchange, NTP request and response packets are protected with AEAD (Authenticated Encryption with Associated Data), specifically AES-SIV. This ensures that time responses are authentic (from the expected server) and untampered (no modification in transit).
+2. **AEAD-protected NTP packets**: After key exchange, NTP request and response packets are protected with AEAD
+(Authenticated Encryption with Associated Data), specifically AES-SIV.
+This ensures that time responses are authentic (from the expected server) and untampered (no modification in transit).
 
-3. **NTS cookies**: The server provides encrypted cookies that the client includes in subsequent requests. This allows the server to be stateless while still maintaining the association. Cookies are refreshed with each exchange.
+3. **NTS cookies**: The server provides encrypted cookies that the client includes in subsequent requests.
+This allows the server to be stateless while still maintaining the association. Cookies are refreshed with each exchange.
 
 NTS adds negligible overhead compared to plain NTP: the key exchange is a one-time TLS handshake, and the per-packet AEAD adds only a few hundred bytes. There is no measurable impact on time accuracy.
 
@@ -324,9 +391,14 @@ CC-TSA nodes are configured with four or more NTS-authenticated time sources fro
 | PTB | `ptbtime1.ptb.de` | 1 | Atomic (PTB national lab) |
 | NIST | `ntp.nist.gov` (NTS when available) | 1 | Atomic (NIST national lab) |
 
-**Byzantine fault tolerance**: With four sources, the system can tolerate one malicious or faulty source. The BFT requirement is `n >= 3f + 1` where `f` is the number of faulty sources. With `n=4` and `f=1`, this condition is satisfied. The CC-TSA time logic uses a Byzantine-tolerant median selection algorithm: it discards the highest and lowest readings and averages the middle two.
+**Byzantine fault tolerance**: With four sources, the system can tolerate one malicious or faulty source.
+The BFT requirement is `n >= 3f + 1` where `f` is the number of faulty sources. With `n=4` and `f=1`, this condition is satisfied.
+The CC-TSA time logic uses a Byzantine-tolerant median selection algorithm:
+it discards the highest and lowest readings and averages the middle two.
 
-**Independence**: Each enclave node independently queries all NTS sources. There is no shared NTP client or proxy that could be a single point of compromise. If one node's NTS connectivity is disrupted, other nodes continue with their own NTS data.
+**Independence**: Each enclave node independently queries all NTS sources.
+There is no shared NTP client or proxy that could be a single point of compromise.
+If one node's NTS connectivity is disrupted, other nodes continue with their own NTS data.
 
 ### Integration with SecureTSC
 
@@ -340,9 +412,15 @@ NTS and SecureTSC serve complementary roles in the time trust chain:
 | **Trust model** | Cryptographic (TLS/AEAD) | Hardware (AMD-SP) |
 | **Failure mode** | Network outage → stale reference | Hardware failure → no time source |
 
-**Combined operation**: NTS provides the "where are we in UTC" answer with millisecond accuracy. SecureTSC provides the "how much time has passed since the last NTS query" answer with nanosecond precision. The Kalman filter in Layer 3 of the time trust chain fuses these two sources into a single, accurate, monotonic time estimate.
+**Combined operation**: NTS provides the "where are we in UTC" answer with millisecond accuracy.
+SecureTSC provides the "how much time has passed since the last NTS query" answer with nanosecond precision.
+The Kalman filter in Layer 3 of the time trust chain fuses these two sources into a single, accurate, monotonic time estimate.
 
-If NTS connectivity is lost, the system can continue issuing timestamps using SecureTSC alone for a bounded period (configurable, e.g., 10 minutes). After this period, the node self-isolates from signing until NTS connectivity is restored, because the accumulated crystal drift may exceed the acceptable accuracy bound. See [Failure Modes and Recovery](04-failure-modes-and-recovery.md) for details.
+If NTS connectivity is lost, the system can continue issuing timestamps using SecureTSC alone
+for a bounded period (configurable, e.g., 10 minutes).
+After this period, the node self-isolates from signing until NTS connectivity is restored,
+because the accumulated crystal drift may exceed the acceptable accuracy bound.
+See [Failure Modes and Recovery](04-failure-modes-and-recovery.md) for details.
 
 ---
 
@@ -407,7 +485,9 @@ flowchart TB
 
 ### Properties
 
-**Byzantine fault tolerance**: TriHaRd tolerates `f < n/3` Byzantine (arbitrarily faulty) nodes. With the standard CC-TSA deployment of 5 nodes, this means it tolerates 1 faulty time source (`f=1`, since `1 < 5/3 ~ 1.67`). This aligns with the threshold signing requirement where 3-of-5 nodes must agree.
+**Byzantine fault tolerance**: TriHaRd tolerates `f < n/3` Byzantine (arbitrarily faulty) nodes.
+With the standard CC-TSA deployment of 5 nodes, this means it tolerates 1 faulty time source (`f=1`, since `1 < 5/3 ~ 1.67`).
+This aligns with the threshold signing requirement where 3-of-5 nodes must agree.
 
 **Network latency compensation**: The protocol accounts for network latency by:
 - Measuring round-trip time (RTT) between each pair of nodes and estimating one-way delay as RTT/2.
@@ -421,13 +501,19 @@ Cross-provider latency (typically 10–30ms) is well within the 100-millisecond 
 - Loose enough to comfortably accommodate crystal oscillator variation, network jitter, and cross-provider latency without false positives.
 - Configurable per deployment via the CC-TSA configuration file.
 
-**Relationship to threshold signing**: TriHaRd is integrated with the threshold signing protocol (see [Quantum-Safe Threshold Cryptography](03-quantum-safe-threshold-crypto.md)). Before a node participates in a threshold signing round, it must have a valid (non-flagged) time status. The signing coordinator checks each participant's TriHaRd status before including them in the signing quorum.
+**Relationship to threshold signing**: TriHaRd is integrated with the threshold signing protocol
+(see [Quantum-Safe Threshold Cryptography](03-quantum-safe-threshold-crypto.md)).
+Before a node participates in a threshold signing round, it must have a valid (non-flagged) time status.
+The signing coordinator checks each participant's TriHaRd status before including them in the signing quorum.
 
 ---
 
 ## 7. Attestation Boot Chain
 
-The attestation boot chain establishes trust from the hardware root (AMD-SP) through the firmware, operating system, and application layers, culminating in a remote attestation report that **verifies node identity during DKG**. Each node's attestation report proves to its peers that it is running the expected software on genuine AMD hardware — this mutual verification is the prerequisite for any node to participate in Distributed Key Generation and receive a key share.
+The attestation boot chain establishes trust from the hardware root (AMD-SP) through the firmware, operating system,
+and application layers, culminating in a remote attestation report that **verifies node identity during DKG**.
+Each node's attestation report proves to its peers that it is running the expected software on genuine AMD hardware —
+this mutual verification is the prerequisite for any node to participate in Distributed Key Generation and receive a key share.
 
 ```mermaid
 flowchart TB
@@ -465,15 +551,32 @@ flowchart TB
 
 ### Boot Sequence Details
 
-**Step 1 -- AMD-SP measures OVMF firmware**: Before the guest VM executes its first instruction, the AMD-SP computes a cryptographic hash of the OVMF firmware image loaded into the guest's encrypted memory. This hash becomes the initial value of the launch digest. The AMD-SP also records the VM policy (no debugging, no migration, minimum firmware version) and the initial CPU register state.
+**Step 1 -- AMD-SP measures OVMF firmware**: Before the guest VM executes its first instruction,
+the AMD-SP computes a cryptographic hash of the OVMF firmware image loaded into the guest's encrypted memory.
+This hash becomes the initial value of the launch digest.
+The AMD-SP also records the VM policy (no debugging, no migration, minimum firmware version) and the initial CPU register state.
 
-**Step 2 -- OVMF loads and measures kernel**: The OVMF firmware initializes the guest hardware, receives SecureTSC parameters from the AMD-SP, and loads the Linux kernel and initrd from the virtual disk. The kernel and initrd are included in the launch measurement (they are loaded into memory before the guest starts executing, so the AMD-SP can measure them as part of the initial state).
+**Step 2 -- OVMF loads and measures kernel**: The OVMF firmware initializes the guest hardware,
+receives SecureTSC parameters from the AMD-SP, and loads the Linux kernel and initrd from the virtual disk.
+The kernel and initrd are included in the launch measurement
+(they are loaded into memory before the guest starts executing, so the AMD-SP can measure them as part of the initial state).
 
-**Step 3 -- Kernel boots and verifies rootfs**: The Linux kernel boots, initializes the SEV guest driver (`/dev/sev-guest`), sets up encrypted page tables, and mounts the root filesystem. The root filesystem is protected by **dm-verity**, which provides block-level integrity verification using a Merkle tree. Any attempt to tamper with the rootfs (including the TSA application binary) is detected and causes a read error.
+**Step 3 -- Kernel boots and verifies rootfs**: The Linux kernel boots, initializes the SEV guest driver (`/dev/sev-guest`),
+sets up encrypted page tables, and mounts the root filesystem.
+The root filesystem is protected by **dm-verity**, which provides block-level integrity verification using a Merkle tree.
+Any attempt to tamper with the rootfs (including the TSA application binary) is detected and causes a read error.
 
-**Step 4 -- TSA application requests attestation**: The TSA application starts and immediately requests an attestation report from the AMD-SP via `/dev/sev-guest`. It provides 64 bytes of `HOST_DATA`, which typically contains a hash of the application configuration (e.g., the expected NTS servers, threshold parameters, node identity). It also provides 64 bytes of `REPORT_DATA`, which contains a freshness nonce (e.g., a DKG session identifier for mutual attestation).
+**Step 4 -- TSA application requests attestation**: The TSA application starts and immediately requests
+an attestation report from the AMD-SP via `/dev/sev-guest`.
+It provides 64 bytes of `HOST_DATA`, which typically contains a hash of the application configuration
+(e.g., the expected NTS servers, threshold parameters, node identity).
+It also provides 64 bytes of `REPORT_DATA`, which contains a freshness nonce
+(e.g., a DKG session identifier for mutual attestation).
 
-**Step 5 -- Report sent to peer nodes for mutual verification**: The attestation report, signed by the AMD-SP using the VCEK (or VLEK), is sent to all peer enclave nodes during the DKG ceremony's mutual attestation phase. Each peer independently verifies the report.
+**Step 5 -- Report sent to peer nodes for mutual verification**: The attestation report,
+signed by the AMD-SP using the VCEK (or VLEK),
+is sent to all peer enclave nodes during the DKG ceremony's mutual attestation phase.
+Each peer independently verifies the report.
 
 **Step 6 -- Peers accept node as DKG participant**: Each peer node verifies:
 - The report signature chains to AMD's root of trust (ARK → ASK → VCEK/VLEK).
@@ -483,7 +586,10 @@ flowchart TB
 - The REPORT_DATA contains a valid DKG session nonce (freshness).
 - The platform TCB version is at or above the minimum required version.
 
-If all checks pass, the node is accepted as a participant in the DKG ceremony and will receive a key share as part of the distributed key generation protocol. Key shares are held in enclave memory only — they are never persisted to durable storage. See [Architecture Overview](01-architecture-overview.md) for how key shares are combined for threshold signing.
+If all checks pass, the node is accepted as a participant in the DKG ceremony
+and will receive a key share as part of the distributed key generation protocol.
+Key shares are held in enclave memory only — they are never persisted to durable storage.
+See [Architecture Overview](01-architecture-overview.md) for how key shares are combined for threshold signing.
 
 ---
 
