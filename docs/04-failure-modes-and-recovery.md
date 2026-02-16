@@ -9,7 +9,7 @@
 > - [Operations and Deployment](05-operations-and-deployment.md) — deployment procedures, monitoring, alerting
 > - [Threat Model](07-threat-model.md) — adversarial scenarios and mitigations
 
-This document defines every failure scenario the CC-TSA system can encounter, the impact of each, and the exact recovery procedures to follow. The CC-TSA uses a **3-of-5 threshold signing** configuration: 5 AMD SEV-SNP enclave nodes each hold one key share, and a minimum of 3 nodes must be online to produce a valid timestamp signature. Key shares are persisted using **double-envelope encryption** (enclave sealing key + KMS wrapping key), meaning key material survives node restarts and even complete cluster outages.
+This document defines every failure scenario the CC-TSA system can encounter, the impact of each, and the exact recovery procedures to follow. The CC-TSA uses a **3-of-5 threshold signing** configuration: 5 AMD SEV-SNP enclave nodes each hold one key share, and a minimum of 3 nodes must be online to produce a valid timestamp signature. Key shares are **ephemeral** — they exist only in enclave memory and are never persisted to disk or sealed in external storage. If a node is lost, its key share is gone. Recovery depends entirely on how many nodes still hold shares in memory: if the threshold is maintained, the cluster continues signing; if quorum is lost, a new Distributed Key Generation (DKG) ceremony produces a new signing key.
 
 ---
 
@@ -19,21 +19,21 @@ Use this decision tree as the first step in any incident. Count how many nodes a
 
 ```mermaid
 flowchart TD
-    START["🔍 How many nodes are offline?"]
+    START["🔍 How many nodes still have<br/>shares in memory?"]
 
-    START -->|0 offline<br/>5 online| H["✅ HEALTHY<br/>Full redundancy<br/>No action needed"]
-    START -->|1 offline<br/>4 online| D["⚠️ DEGRADED<br/>Signing continues<br/>Alert on-call<br/>Recover failed node"]
-    START -->|2 offline<br/>3 online| C["🔶 CRITICAL<br/>Signing continues but ZERO margin<br/>Page on-call immediately<br/>Recover nodes urgently"]
-    START -->|3 offline<br/>2 online| U1["🔴 UNAVAILABLE<br/>Signing HALTED — below threshold<br/>Key material preserved<br/>Recover ≥1 node to resume"]
-    START -->|4 offline<br/>1 online| U2["🔴 UNAVAILABLE<br/>Signing HALTED<br/>Recover ≥2 nodes to resume"]
-    START -->|5 offline<br/>0 online| FO["🔴 FULL OUTAGE<br/>Signing HALTED<br/>All key shares in sealed storage<br/>Execute full recovery procedure<br/>See Section 5"]
+    START -->|5 nodes with shares| H["✅ HEALTHY<br/>Full redundancy<br/>No action needed"]
+    START -->|4 nodes with shares| D["⚠️ DEGRADED<br/>Signing continues<br/>Alert on-call<br/>Replace failed node +<br/>redistribute share"]
+    START -->|3 nodes with shares| C["🔶 CRITICAL<br/>Signing continues but ZERO margin<br/>Page on-call immediately<br/>Replace nodes + redistribute shares"]
+    START -->|2 nodes with shares| U1["🔴 UNAVAILABLE<br/>Signing HALTED — below threshold<br/>Lost node shares are GONE<br/>New DKG required when ≥5 nodes available"]
+    START -->|1 node with share| U2["🔴 UNAVAILABLE<br/>Signing HALTED<br/>New DKG required"]
+    START -->|0 nodes with shares| FO["🔴 FULL OUTAGE<br/>Signing HALTED<br/>All key shares lost (by design)<br/>New DKG + new certificate required<br/>See Section 5"]
 
-    H --> KS1["Key material safe? YES<br/>All shares active in enclaves"]
-    D --> KS2["Key material safe? YES<br/>Failed node's share sealed<br/>in KMS-backed storage"]
-    C --> KS3["Key material safe? YES<br/>Failed nodes' shares sealed<br/>in KMS-backed storage"]
-    U1 --> KS4["Key material safe? YES<br/>All shares sealed<br/>in KMS-backed storage"]
-    U2 --> KS5["Key material safe? YES<br/>All shares sealed<br/>in KMS-backed storage"]
-    FO --> KS6["Key material safe? YES<br/>All shares sealed<br/>in KMS-backed storage"]
+    H --> KS1["Key material available? YES<br/>All shares active in enclave memory"]
+    D --> KS2["Key material available? YES (4 shares)<br/>Lost node's share is GONE<br/>Can redistribute to replacement node"]
+    C --> KS3["Key material available? YES (3 shares)<br/>Lost nodes' shares are GONE<br/>Can redistribute to replacement nodes"]
+    U1 --> KS4["Key material available? NO (below threshold)<br/>Remaining shares cannot produce signatures<br/>New DKG required"]
+    U2 --> KS5["Key material available? NO (below threshold)<br/>New DKG required"]
+    FO --> KS6["Key material available? NO<br/>All shares lost<br/>New DKG + new certificate required"]
 
     style H fill:#2d6a2d,color:#fff
     style D fill:#b8860b,color:#fff
@@ -44,12 +44,12 @@ flowchart TD
     style KS1 fill:#1a4d1a,color:#fff
     style KS2 fill:#1a4d1a,color:#fff
     style KS3 fill:#1a4d1a,color:#fff
-    style KS4 fill:#1a4d1a,color:#fff
-    style KS5 fill:#1a4d1a,color:#fff
-    style KS6 fill:#1a4d1a,color:#fff
+    style KS4 fill:#cc6600,color:#fff
+    style KS5 fill:#cc6600,color:#fff
+    style KS6 fill:#8b0000,color:#fff
 ```
 
-**Key takeaway**: In every failure scenario, key material remains safe. The double-envelope encryption (described in [Quantum-Safe Threshold Crypto](03-quantum-safe-threshold-crypto.md)) ensures that sealed shares survive indefinitely in persistent storage, protected by both the enclave sealing key and the KMS wrapping key.
+**Key takeaway**: Key shares exist **only in enclave memory** — they are never persisted to disk. When a node is lost, its share is gone. The critical question is always: **how many nodes still hold shares?** If ≥3 nodes retain their shares, signing continues and new nodes can receive shares via redistribution. If <3 nodes retain shares, the signing key is effectively lost and a new DKG ceremony is required. This is a designed-in property of the ephemeral key model: stronger trust guarantees (no persistent key material to attack) in exchange for key regeneration when quorum is lost.
 
 ---
 
@@ -65,7 +65,7 @@ A single node failure is the most common failure mode. The system is explicitly 
 | Cloud provider host maintenance | Common | Scheduled maintenance notification, health check |
 | Availability zone failure | Uncommon | Provider status page, multiple health check failures |
 | Application bug / panic | Uncommon | Process exit, crash logs, health check failure |
-| Attestation failure (AMD-SP) | Rare | Attestation error logs, node fails to unseal |
+| Attestation failure (AMD-SP) | Rare | Attestation error logs, node fails mutual attestation |
 | Hardware failure | Rare | Provider-reported hardware event |
 
 ### Impact
@@ -73,67 +73,48 @@ A single node failure is the most common failure mode. The system is explicitly 
 - **Signing continues** with 4 remaining nodes (threshold = 3, so **1 node of margin** remains)
 - **No impact** on timestamp quality — the threshold signature is cryptographically identical whether produced by 3, 4, or 5 nodes
 - **No impact** on clock accuracy — the TriHaRd protocol (see [Confidential Computing and Time](02-confidential-computing-and-time.md)) continues to cross-validate time across the 4 remaining nodes
-- The failed node's key share remains sealed in double-envelope encryption on persistent disk
+- The failed node's key share is **lost** — it existed only in that node's enclave memory and is gone when the node goes down
 
-### Recovery Procedures
+### Recovery Procedure
 
-Recovery follows a tiered approach, escalating only if the simpler option fails:
+Since key shares are ephemeral (in-memory only), a failed node's share is permanently lost. Recovery means provisioning a replacement node and redistributing a new share to it from the remaining cluster.
 
 ```mermaid
 flowchart TD
-    FAIL["Single Node Failure Detected"]
-    FAIL --> AUTO["Tier 1: Automatic Restart<br/>⏱️ 2–5 minutes"]
-    AUTO -->|VM restarts in<br/>same environment| BOOT["Boot → Attest → Unseal → Rejoin"]
-    BOOT --> DONE["✅ Node recovered<br/>Cluster returns to HEALTHY"]
-
-    AUTO -->|VM cannot restart<br/>or restart fails| COLD["Tier 2: Cold Standby Activation<br/>⏱️ 5–10 minutes"]
-    COLD --> COLDBOOT["Activate pre-provisioned cold standby<br/>in same AZ"]
-    COLDBOOT --> COLDATTEST["Boot → Attest → Transfer sealed share<br/>→ Unseal → Rejoin"]
-    COLDATTEST --> DONE
-
-    COLD -->|No cold standby<br/>available| NEW["Tier 3: New Node Provisioning<br/>⏱️ 15–30 minutes"]
-    NEW --> PROVISION["Provision new AMD SEV-SNP CVM"]
-    PROVISION --> DEPLOY["Deploy TSA application"]
-    DEPLOY --> ATTEST["Attest → Join cluster"]
-    ATTEST --> REFRESH["Run proactive share refresh<br/>to issue new share"]
-    REFRESH --> DONE
+    FAIL["Single Node Failure Detected<br/>4 nodes remain with shares"]
+    FAIL --> SIGNING["✅ Signing continues<br/>at reduced fault tolerance"]
+    SIGNING --> PROVISION["Provision replacement node<br/>⏱️ 5–15 minutes"]
+    PROVISION --> DEPLOY["Deploy same immutable<br/>software image"]
+    DEPLOY --> ATTEST["New node attests to peers<br/>(mutual attestation)"]
+    ATTEST --> REDIST["Redistribute share to new node<br/>via threshold protocol"]
+    REDIST --> DONE["✅ Cluster returns to HEALTHY<br/>5 nodes with shares"]
 
     style FAIL fill:#b8860b,color:#fff
+    style SIGNING fill:#2d6a2d,color:#fff
     style DONE fill:#2d6a2d,color:#fff
-    style AUTO fill:#2a5a8a,color:#fff
-    style COLD fill:#2a5a8a,color:#fff
-    style NEW fill:#2a5a8a,color:#fff
+    style PROVISION fill:#2a5a8a,color:#fff
+    style DEPLOY fill:#2a5a8a,color:#fff
+    style ATTEST fill:#2a5a8a,color:#fff
+    style REDIST fill:#2a5a8a,color:#fff
 ```
 
-**Tier 1 — Automatic Restart** (2-5 minutes):
-1. The VM restarts in the same environment (same host or same AZ).
-2. On boot, the application automatically runs the **boot → attest → unseal** sequence:
-   - The AMD Secure Processor generates a fresh attestation report.
-   - The attestation report is presented to the KMS (Azure Key Vault or GCP Cloud KMS).
-   - The KMS verifies the attestation and releases the wrapping key.
-   - The application unwraps the outer envelope, then uses the enclave sealing key to decrypt the inner envelope, recovering the key share.
-3. The node rejoins the cluster and resumes participating in threshold signing.
+**Step-by-step recovery**:
 
-**Tier 2 — Cold Standby Activation** (5-10 minutes):
-1. If the original VM cannot restart (e.g., host hardware failure), activate a pre-provisioned cold standby CVM in the same availability zone.
-2. The cold standby has the TSA application pre-installed but no key material.
-3. Transfer the sealed share blob from persistent storage to the new VM.
-4. The new VM runs the same boot → attest → unseal sequence.
-5. The node rejoins the cluster.
+1. **Signing continues** — With 4 nodes holding shares, the cluster remains above threshold (t = 3). No immediate action is required to maintain signing, but fault tolerance is reduced.
+2. **Provision replacement node** — Boot a new AMD SEV-SNP confidential VM. This can be in the same AZ, a different AZ, or even a different provider, as long as AMD SEV-SNP is supported.
+3. **Deploy immutable software image** — Install the **exact same application image** that all other nodes are running. The launch measurement must match the measurement bound to the current TSA certificate.
+4. **Mutual attestation** — The new node and the existing cluster nodes exchange attestation reports, verifying they are all running the same software in genuine AMD SEV-SNP enclaves.
+5. **Share redistribution** — The existing 4 nodes collaborate to issue a new key share to the replacement node via the threshold redistribution protocol (see [Quantum-Safe Threshold Crypto](03-quantum-safe-threshold-crypto.md)). This requires ≥3 of the 4 remaining nodes to participate. The new share is generated without ever reconstructing the full signing key.
+6. **Cluster returns to Healthy** — The replacement node now holds a valid share in enclave memory. The cluster is back to 5/5 nodes with full fault tolerance.
 
-**Tier 3 — New Node Provisioning** (15-30 minutes):
-1. If no cold standby is available, provision a completely new AMD SEV-SNP confidential VM.
-2. Deploy the exact TSA application image (the binary measurement must match the KMS attestation policy).
-3. The new node attests and joins the cluster.
-4. Run **proactive share refresh** (see [Quantum-Safe Threshold Crypto](03-quantum-safe-threshold-crypto.md)) to generate a new set of key shares that includes the new node. This invalidates the old share that belonged to the failed node.
+### Recovery Time
 
-### Recovery Time Summary
-
-| Tier | Method | Time | Requires |
-|---|---|---|---|
-| 1 | Automatic restart | 2–5 min | VM environment intact |
-| 2 | Cold standby activation | 5–10 min | Pre-provisioned standby VM |
-| 3 | New node + share refresh | 15–30 min | Available cloud capacity, ≥3 nodes online for refresh |
+| Step | Time | Bottleneck |
+|---|---|---|
+| Provision new CVM | 5–10 min | Cloud provider VM provisioning |
+| Deploy + attest | 1–3 min | Boot, attestation exchange |
+| Share redistribution | 1–2 min | Threshold protocol execution |
+| **Total** | **7–15 min** | VM provisioning is the bottleneck |
 
 ---
 
@@ -154,7 +135,7 @@ When two nodes fail simultaneously, determine whether the failures are correlate
 | Both nodes in same AZ | AZ failure | Activate DR nodes in other AZs |
 | Both nodes on same provider | Provider incident | Activate nodes on other providers |
 | Both nodes failed independently | Coincidence or application bug | Investigate root cause, recover both |
-| Both nodes failed after update | Deployment issue | Rollback, recover both |
+| Both nodes failed after deployment | Deployment issue (wrong image) | Deploy correct image, recover both |
 
 ### Recovery
 
@@ -183,33 +164,42 @@ See [Operations and Deployment](05-operations-and-deployment.md) for detailed al
 ### Impact
 
 - **Signing is HALTED** — the cluster is below the threshold (t = 3)
-- **No timestamps can be issued** until at least 3 nodes are online
-- **Key material is preserved** — every node's share remains sealed in double-envelope encryption (enclave sealing key + KMS wrapping key) on persistent storage
+- **No timestamps can be issued** until a new signing key is generated
+- **The signing key is effectively lost** — with fewer than 3 nodes holding shares in memory, no quorum can be formed and the remaining shares cannot produce signatures
 
-This is a service outage. Clients submitting timestamp requests will receive errors. Upstream systems that depend on timestamping should have retry logic or queue requests for later processing.
+This is a service outage, but it is the **expected cost of the ephemeral key model**. The tradeoff is explicit: stronger trust guarantees (no persistent key material that could be attacked at rest) in exchange for key regeneration when quorum is lost. Clients submitting timestamp requests will receive errors. Upstream systems that depend on timestamping should have retry logic or queue requests for later processing.
 
-### Key Material Safety
+### Key Material Status
 
-Even with all nodes offline, key shares are **never lost** in normal circumstances:
+The signing key is **irrecoverably lost** when fewer than 3 nodes retain their shares. This is by design:
 
-- Each share is encrypted with two layers (see [Quantum-Safe Threshold Crypto](03-quantum-safe-threshold-crypto.md)):
-  - **Inner envelope**: Encrypted with the enclave sealing key (derived from the platform's hardware root of trust)
-  - **Outer envelope**: Encrypted with a KMS wrapping key (Azure Key Vault or GCP Cloud KMS)
-- The sealed share blobs persist on disk (or in cloud storage) independent of VM lifecycle.
-- The KMS services are separate highly-available systems that survive CC-TSA node failures.
+- Key shares exist only in enclave memory — there are no sealed blobs, no KMS-backed backups, no persistent copies
+- When a node goes down, its share is gone permanently
+- With <3 shares remaining, the threshold signing protocol cannot produce a valid signature
+- The remaining 1–2 shares are mathematically insufficient to reconstruct or use the key
+
+**This is not a catastrophe — it is the designed-in consequence of the ephemeral model.** The system eliminates the entire attack surface of persistent key storage in exchange for accepting that quorum loss requires key regeneration.
 
 ### Recovery
 
-1. **Recover any 1 node** to reach 3 online — this restores signing capability.
-2. Each recovered node follows the standard sequence:
-   - **Boot** the CVM (restart existing or provision new)
-   - **Attest** — AMD-SP generates attestation report
-   - **KMS releases wrapping key** — KMS verifies attestation, releases the outer envelope key
-   - **Unseal share** — Application decrypts inner envelope with enclave sealing key
-   - **Rejoin cluster** — Node announces itself, mutual attestation with peers
-3. If nodes cannot be recovered in their original locations:
-   - **Option A**: If the sealed share blob is accessible (persistent disk or cloud storage), transfer it to a new CVM in a different location. The new CVM attests, obtains the KMS wrapping key, and unseals the share.
-   - **Option B**: If sealed share blobs are inaccessible for some nodes, recover the nodes whose shares ARE accessible. Once you reach threshold (3 nodes), run **proactive share refresh** to generate new shares for the remaining nodes.
+Recovery requires a **new DKG ceremony** to generate a fresh signing key, followed by obtaining a new certificate.
+
+1. **Provision or recover nodes** — Ensure at least 5 AMD SEV-SNP nodes are available (all running the same immutable software image).
+2. **Mutual attestation** — All nodes verify each other's attestation reports, confirming they run the same software in genuine SEV-SNP enclaves.
+3. **New DKG ceremony** — Run Distributed Key Generation across all 5 nodes (see [Quantum-Safe Threshold Crypto](03-quantum-safe-threshold-crypto.md)). This produces a new threshold signing key with fresh shares distributed to each node.
+4. **Obtain new certificate** — Request a new X.509 TSA certificate from the Certificate Authority for the new public key. The new certificate binds the same software measurement to the new key.
+5. **Resume signing** — The cluster begins issuing timestamps with the new key and new certificate.
+6. **Old timestamps remain valid** — Timestamps signed with the old key remain valid. They were signed during the old certificate's validity period, and the old certificate (and its chain) still verifies them.
+
+### Recovery Time
+
+| Step | Time | Bottleneck |
+|---|---|---|
+| Provision/recover nodes | 5–15 min | Cloud provider VM provisioning |
+| Mutual attestation | 1–2 min | Attestation exchange |
+| DKG ceremony | 5–15 min | Distributed protocol across 5 nodes |
+| Certificate issuance | 1–5 min | CA processing time |
+| **Total** | **12–37 min** | DKG ceremony and VM provisioning |
 
 ---
 
@@ -217,17 +207,20 @@ Even with all nodes offline, key shares are **never lost** in normal circumstanc
 
 ### Scenario
 
-All 5 nodes are simultaneously offline. With nodes distributed across Azure, GCP, and a third provider (see Section 7), this requires simultaneous failures at multiple independent cloud providers. While extremely unlikely, the system is designed for full recovery from this scenario.
+All 5 nodes are simultaneously offline. With nodes distributed across Azure, GCP, and a third provider (see Section 7), this requires simultaneous failures at multiple independent cloud providers. While extremely unlikely, the system is designed for recovery from this scenario.
 
 ### Key Material Status
 
-**Key shares are NOT lost.** This is the most important fact in this section.
+**All key shares are lost.** This is expected under the ephemeral key model.
 
-- Each of the 5 key shares is double-encrypted and stored on persistent disk or in cloud storage.
-- The KMS services (Azure Key Vault, GCP Cloud KMS) are **separate, highly-available services** with their own redundancy, replication, and disaster recovery. They survive even if every CC-TSA node is destroyed.
-- The KMS wrapping keys have soft-delete and purge protection enabled, preventing accidental permanent deletion.
+- Key shares existed only in enclave memory — when all nodes go down, all shares are gone
+- There are no sealed blobs, no KMS backups, no persistent copies to recover
+- The signing key is irrecoverably lost (by design)
+- Recovery requires generating a **new signing key** via DKG and obtaining a **new certificate**
 
-### 9-Step Recovery Procedure
+This is the designed-in cost of the ephemeral model. The benefit is clear: there is no persistent key material anywhere that could be attacked, stolen, or manipulated by operators, cloud providers, or other adversaries.
+
+### 5-Step Recovery Procedure
 
 ```mermaid
 sequenceDiagram
@@ -235,134 +228,121 @@ sequenceDiagram
     participant CP as Cloud Provider
     participant AMD as AMD Secure<br/>Processor
     participant CVM as CVM (New)
-    participant KMS as KMS<br/>(Key Vault / Cloud KMS)
     participant Peers as Peer Nodes
+    participant CA as Certificate<br/>Authority
 
-    Note over Op,Peers: STEP 1 — Assess root cause
+    Note over Op,CA: STEP 1 — Assess root cause
     Op->>Op: Determine cause: provider outage,<br/>coordinated attack, or operational error
 
-    Note over Op,Peers: STEP 2 — Provision CVMs
-    Op->>CP: Request ≥3 AMD SEV-SNP<br/>confidential VMs
+    Note over Op,CA: STEP 2 — Boot all 5 nodes with immutable software image
+    Op->>CP: Request 5 AMD SEV-SNP<br/>confidential VMs
     CP-->>CVM: Provision VMs with<br/>SEV-SNP enabled
+    Op->>CVM: Deploy same immutable<br/>software image to all nodes
 
-    Note over Op,Peers: STEP 3 — Deploy TSA application
-    Op->>CVM: Deploy exact TSA application image<br/>(measurement must match KMS policy)
-
-    Note over Op,Peers: STEP 4 — Attestation
+    Note over Op,CA: STEP 3 — Mutual attestation
     CVM->>AMD: Request attestation report
     AMD-->>CVM: Signed attestation report<br/>(measurement, policy, platform cert)
-
-    Note over Op,Peers: STEP 5 — KMS Secure Key Release (verification)
-    CVM->>KMS: Present attestation report
-    KMS->>KMS: Verify launch measurement<br/>matches expected value
-    KMS->>KMS: Verify VM policy matches<br/>expected configuration
-    KMS->>KMS: Verify platform is genuine<br/>AMD SEV-SNP
-
-    Note over Op,Peers: STEP 6 — KMS releases wrapping key
-    KMS-->>CVM: Release wrapping key<br/>(unwrap outer envelope)
-
-    Note over Op,Peers: STEP 7 — Unseal inner envelope
-    CVM->>CVM: Use enclave sealing key to<br/>decrypt key share (inner envelope)
-    CVM->>CVM: Key share now in<br/>enclave-protected memory
-
-    Note over Op,Peers: STEP 8 — Mutual attestation
     CVM->>Peers: Exchange attestation reports
-    Peers->>CVM: Verify peer attestation
+    Peers->>CVM: Verify peer attestation<br/>(same measurement as before)
     Peers-->>CVM: Mutual attestation confirmed
 
-    Note over Op,Peers: STEP 9 — Resume signing
-    CVM->>Peers: Announce ready with valid share
-    Note over CVM,Peers: ≥3 nodes with valid shares<br/>Threshold signing resumes
+    Note over Op,CA: STEP 4 — Run DKG ceremony
+    CVM->>Peers: Initiate Distributed Key Generation
+    Note over CVM,Peers: DKG produces new threshold<br/>signing key with fresh shares<br/>distributed to all 5 nodes
+
+    Note over Op,CA: STEP 5 — Obtain new certificate and resume
+    CVM->>CA: Submit CSR for new public key
+    CA-->>CVM: Issue new X.509 TSA certificate<br/>(binds measurement to new key)
+    Note over CVM,Peers: Resume signing with<br/>new key + new certificate
 
     Op->>Op: Verify: signing operational,<br/>timestamps being issued
 ```
 
 **Step-by-step detail**:
 
-1. **Assess**: Determine the root cause of the complete outage. Is it a multi-provider outage? A coordinated attack? An operational error (e.g., bad deployment rolled out to all nodes)? The root cause determines which providers and regions to use for recovery.
+1. **Assess**: Determine the root cause of the complete outage. Is it a multi-provider outage? A coordinated attack? An operational error? The root cause determines which providers and regions to use for recovery and whether the same software image should be used (if the outage was caused by a software bug, a new image with a fix may be needed — which means a new measurement and a fresh identity).
 
-2. **Provision CVMs**: Boot at least 3 (preferably all 5) new AMD SEV-SNP confidential VMs. These can be in the original locations or in new locations, as long as the cloud provider supports AMD SEV-SNP. Distribute across providers per the multi-provider strategy (Section 7).
+2. **Boot all 5 nodes with the same immutable software image**: Provision 5 new AMD SEV-SNP confidential VMs, distributed across providers per the multi-provider strategy (Section 7). Deploy the **same immutable application image** to all nodes. If reusing the previous image, the launch measurement will be identical to the previous deployment.
 
-3. **Deploy TSA application**: Install the **exact same application image** on each CVM. The binary measurement of this image must match the expected measurement configured in the KMS attestation policy. A mismatched image will cause attestation verification to fail in step 5.
+3. **Mutual attestation**: Each node's AMD Secure Processor generates a fresh attestation report. Nodes exchange attestation reports and verify that all peers are running the same software (same launch measurement) in genuine AMD SEV-SNP enclaves. This ensures no compromised or incorrect node can participate in the DKG.
 
-4. **Attestation**: Each CVM's AMD Secure Processor generates a fresh attestation report. This report contains the launch measurement (hash of the initial VM memory contents), the VM's security policy, and is signed by the AMD-SP using a key chaining back to AMD's root of trust.
+4. **Run DKG ceremony**: Execute a new Distributed Key Generation ceremony across all 5 nodes (see [Quantum-Safe Threshold Crypto](03-quantum-safe-threshold-crypto.md)). This produces a new threshold signing key with fresh shares distributed to each node in enclave memory. The old signing key is unrelated to the new one — this is a completely fresh key.
 
-5. **KMS Secure Key Release — Verification**: Each CVM presents its attestation report to the appropriate KMS (Azure Key Vault for Azure-hosted nodes, GCP Cloud KMS for GCP-hosted nodes). The KMS performs three critical checks:
-   - **Launch measurement** matches the expected value (confirming the correct, unmodified application is running)
-   - **VM policy** matches the expected configuration (confirming security features like debugging are disabled)
-   - **Platform authenticity** is confirmed as genuine AMD SEV-SNP (via AMD's certificate chain)
-
-6. **KMS releases wrapping key**: Upon successful verification, the KMS releases the wrapping key (or directly unwraps the outer envelope of the sealed share blob). This key is transmitted over a secure channel established during the attestation handshake.
-
-7. **Unseal inner envelope**: The application uses the enclave sealing key (derived from the platform's hardware root of trust) to decrypt the inner envelope, recovering the plaintext key share into enclave-protected memory.
-
-8. **Mutual attestation**: The recovered nodes attest each other to confirm they are genuine peers running the expected software. This prevents a compromised node from joining the cluster. See [Confidential Computing and Time](02-confidential-computing-and-time.md) for the mutual attestation protocol.
-
-9. **Resume signing**: With 3 or more nodes holding valid key shares, the threshold signing protocol resumes. The cluster begins accepting and signing timestamp requests.
+5. **Obtain new certificate and resume signing**: Submit a Certificate Signing Request (CSR) for the new public key to the Certificate Authority. The CA issues a new X.509 TSA certificate that binds the software measurement to the new key. Once the certificate is installed, the cluster begins issuing timestamps.
 
 ### Recovery Time
 
-| Scenario | Expected Time | Bottleneck |
+| Step | Time | Bottleneck |
 |---|---|---|
-| Pre-provisioned cold standby VMs | 2–5 minutes | Attestation + unsealing |
-| New VMs, existing provider capacity | 5–15 minutes | VM provisioning + boot |
-| New VMs, provider under load | 15–30 minutes | VM provisioning wait time |
+| Provision 5 CVMs | 5–15 min | Cloud provider VM provisioning |
+| Mutual attestation | 1–2 min | Attestation exchange |
+| DKG ceremony | 5–15 min | Distributed protocol across 5 nodes |
+| Certificate issuance | 1–5 min | CA processing time |
+| **Total** | **12–37 min** | DKG ceremony and VM provisioning |
 
 ### Post-Recovery Verification
 
 After recovery, verify:
-- [ ] Threshold signing produces valid timestamps
-- [ ] All recovered nodes pass mutual attestation
+- [ ] New DKG ceremony completed successfully — all 5 nodes hold shares
+- [ ] New X.509 certificate is issued and installed
+- [ ] Threshold signing produces valid timestamps with the new key
+- [ ] All nodes pass mutual attestation
 - [ ] TriHaRd clock validation passes across all nodes (see [Confidential Computing and Time](02-confidential-computing-and-time.md))
 - [ ] Monitoring confirms all nodes are reporting healthy
 - [ ] Run a test timestamp request and verify the response
+- [ ] Old timestamps remain verifiable with the old certificate
 
 ---
 
-## 6. Irrecoverable Key Loss
+## 6. Key Regeneration After Quorum Loss
 
 ### When Does This Happen?
 
-Irrecoverable key loss occurs **ONLY** when 3 or more (the threshold) sealed key shares are **permanently destroyed**. "Permanently destroyed" means ALL of the following for each lost share:
+Key regeneration is required whenever **fewer than 3 nodes retain their key shares in memory**. Since shares are ephemeral (in-memory only), any node failure permanently destroys that node's share. Key regeneration is triggered when cumulative node losses cross the threshold boundary:
 
-- The encrypted share blob is deleted from persistent disk **AND**
-- The encrypted share blob backup (if any) is deleted from geo-redundant storage **AND**
-- The KMS wrapping key for that share is permanently purged (past the soft-delete retention period) **AND**
-- There are no other copies or backups of any of the above
+- **1–2 nodes lost**: Signing continues. Shares can be redistributed to replacement nodes (see Section 2).
+- **3+ nodes lost**: Quorum is lost. The signing key is effectively gone. A new DKG ceremony is required.
 
-This is **extremely unlikely** because:
+This is a **designed-in property** of the ephemeral key model, not a rare disaster. The system trades persistent key availability for a fundamentally stronger security posture: there is no stored key material that operators, cloud providers, or attackers could access at rest.
 
-1. **KMS services have built-in protections**: Azure Key Vault and GCP Cloud KMS both support soft-delete with configurable retention periods (7-90 days) and purge protection. Accidentally deleting a KMS key does not immediately destroy it.
-2. **Sealed share blobs can be backed up**: The double-encrypted share blobs are just data — they can be replicated to geo-redundant cloud storage across multiple regions and providers.
-3. **Shares are distributed across multiple providers**: An attacker or failure would need to destroy shares at Azure, GCP, and the third provider simultaneously.
-4. **KMS keys and share blobs are independent**: Destroying a VM does not destroy its KMS key. Destroying a KMS key does not destroy the share blob (though it becomes undecryptable without the wrapping key).
+### What Triggers Key Regeneration
 
-### Recovery from Irrecoverable Key Loss
+| Scenario | Nodes with shares | Action |
+|---|---|---|
+| 1 node lost, 4 remain | 4 (above threshold) | Redistribute share to replacement — **no key regeneration needed** |
+| 2 nodes lost, 3 remain | 3 (at threshold) | Redistribute shares to replacements — **no key regeneration needed** |
+| 3 nodes lost, 2 remain | 2 (below threshold) | **Key regeneration required** — new DKG + new certificate |
+| 4 nodes lost, 1 remains | 1 (below threshold) | **Key regeneration required** — new DKG + new certificate |
+| All 5 nodes lost | 0 | **Key regeneration required** — new DKG + new certificate (see Section 5) |
 
-If key loss is confirmed (fewer than 3 shares can ever be recovered):
+### Recovery via Key Regeneration
 
-1. **Accept**: The old signing key is permanently lost. No further timestamps can be produced with it.
-2. **New DKG**: Initiate a new Distributed Key Generation ceremony (see [Quantum-Safe Threshold Crypto](03-quantum-safe-threshold-crypto.md)) to produce a new threshold signing key with new shares distributed to all nodes.
-3. **New certificate**: Obtain a new X.509 TSA certificate from the Certificate Authority for the new public key.
-4. **Resume signing**: Begin issuing timestamps with the new key and new certificate.
-5. **Old timestamps remain valid**: Timestamps signed with the old key remain valid. They were signed during the old certificate's validity period, and the old certificate (and its chain) still verifies them. Relying parties can continue to validate old timestamps using the old certificate.
+1. **Ensure ≥5 nodes are available** — Provision replacement nodes as needed, all running the same immutable software image.
+2. **Mutual attestation** — All nodes verify each other's attestation (same measurement, genuine AMD SEV-SNP).
+3. **New DKG ceremony** — Generate a new threshold signing key with fresh shares (see [Quantum-Safe Threshold Crypto](03-quantum-safe-threshold-crypto.md)).
+4. **New certificate** — Obtain a new X.509 TSA certificate from the CA for the new public key.
+5. **Resume signing** — Begin issuing timestamps with the new key and certificate.
+6. **Old timestamps remain valid** — Timestamps signed with the old key remain valid. They were signed during the old certificate's validity period, and the old certificate (and its chain) still verifies them. Relying parties can continue to validate old timestamps using the old certificate.
 
-### Key Loss vs. Key Compromise Response
+### Key Loss vs. Key Compromise
 
-These two scenarios have fundamentally different response procedures:
+These two scenarios have fundamentally different response procedures. The distinction is critical:
+
+- **Key loss** (quorum lost): The signing key is gone because too many nodes went down. This is a service availability issue. No adversary has the key.
+- **Key compromise**: An adversary may have extracted key shares from enclave memory during operation. This is a security emergency.
 
 ```mermaid
 flowchart TD
     INCIDENT["Key Incident Detected"]
-    INCIDENT -->|Shares destroyed<br/>or inaccessible| LOSS["KEY LOSS<br/>Shares unavailable"]
-    INCIDENT -->|Shares exposed<br/>to unauthorized party| COMP["KEY COMPROMISE<br/>Shares potentially known<br/>to adversary"]
+    INCIDENT -->|Nodes lost<br/>quorum broken| LOSS["KEY LOSS<br/>(Quorum Lost)"]
+    INCIDENT -->|Shares potentially<br/>extracted by adversary| COMP["KEY COMPROMISE<br/>Shares potentially known<br/>to adversary"]
 
     %% Key Loss Path
-    LOSS --> LASSESS["Assess: Can any shares<br/>be recovered?"]
-    LASSESS -->|"≥3 shares recoverable<br/>(threshold met)"| LRECOVER["Recover shares via<br/>standard unseal procedure"]
-    LRECOVER --> LRESUME["✅ Resume signing<br/>with existing key"]
+    LOSS --> LASSESS["Assess: How many nodes<br/>still have shares in memory?"]
+    LASSESS -->|"≥3 nodes with shares<br/>(threshold met)"| LREDIST["Redistribute shares to<br/>replacement nodes"]
+    LREDIST --> LRESUME["✅ Resume signing<br/>with existing key"]
 
-    LASSESS -->|"< 3 shares recoverable<br/>(threshold NOT met)"| LNEWDKG["Initiate new DKG ceremony<br/>Generate new threshold key"]
+    LASSESS -->|"< 3 nodes with shares<br/>(threshold NOT met)"| LNEWDKG["New DKG ceremony<br/>Generate new threshold key"]
     LNEWDKG --> LNEWCERT["Obtain new X.509 certificate<br/>from CA for new public key"]
     LNEWCERT --> LNEWRESUME["Resume signing<br/>with new key + new certificate"]
     LNEWRESUME --> LOLD["Old timestamps remain VALID<br/>Verified by old certificate"]
@@ -389,15 +369,18 @@ flowchart TD
 
 **Key differences between loss and compromise**:
 
-| Aspect | Key Loss | Key Compromise |
+| Aspect | Key Loss (Quorum Lost) | Key Compromise |
 |---|---|---|
 | Threat | Availability (can't sign) | Integrity (adversary could forge) |
 | Urgency | High (service is down) | Critical (active security threat) |
 | Certificate action | No revocation needed | Revoke immediately (if ≥ t shares) |
 | Old timestamps | Remain valid | Must evaluate against compromise timeline |
-| Sub-threshold response | Recover shares if possible | Proactive share refresh (same key, new shares) |
+| Above-threshold response | Redistribute shares to replacement nodes | Proactive share refresh (same key, new shares) |
+| Below-threshold response | New DKG + new certificate | Revoke + new DKG + new certificate + forensic investigation |
 
 **Proactive share refresh** (for sub-threshold compromise) is a powerful tool: it generates an entirely new set of shares for the **same** signing key. The old shares — including the compromised ones — become mathematically useless. The public key and certificate remain unchanged. See [Quantum-Safe Threshold Crypto](03-quantum-safe-threshold-crypto.md) for the share refresh protocol.
+
+**Note on the ephemeral model and compromise risk**: Because key shares exist only in enclave memory (protected by AMD SEV-SNP hardware encryption), the attack surface for key compromise is limited to runtime extraction from hardware-encrypted enclave memory. There are no sealed blobs on disk, no KMS-wrapped copies, and no backups that could be targeted at rest. This significantly narrows the compromise scenarios compared to a model with persistent key storage.
 
 ---
 
@@ -471,18 +454,6 @@ flowchart TB
 - **Independent**: Azure and GCP run on entirely separate infrastructure, networks, and operational teams.
 - **Regional, not global**: Most outages affect specific regions, not the entire provider. Distributing nodes across regions within each provider further reduces correlation.
 
-### KMS Distribution
-
-Each provider's KMS holds the wrapping keys for the nodes hosted on that provider:
-
-| Node | Provider | KMS Service | KMS Key |
-|---|---|---|---|
-| N1, N2 | Azure | Azure Key Vault (Managed HSM) | Azure wrapping key |
-| N3, N4 | GCP | GCP Cloud KMS | GCP wrapping key |
-| N5 | Third Provider | Azure Key Vault* | Azure wrapping key |
-
-*N5 uses Azure Key Vault for its KMS wrapping key because the third provider may not have a comparable KMS offering. This is configurable. See [Architecture Overview](01-architecture-overview.md) for the full KMS topology.
-
 ---
 
 ## 8. Cluster Health State Machine
@@ -510,11 +481,11 @@ stateDiagram-v2
     Unavailable: UNAVAILABLE (< 3/5 nodes)
     Unavailable: Below threshold
     Unavailable: Signing HALTED
-    Unavailable: Key material safe
+    Unavailable: Key shares in memory of remaining nodes only
 
     Recovering: RECOVERING
-    Recovering: Nodes rebooting
-    Recovering: Attesting + unsealing
+    Recovering: Nodes provisioning
+    Recovering: Attesting + DKG or share redistribution
     Recovering: Rejoining cluster
 
     Healthy --> Degraded: 1 node failure
@@ -533,9 +504,9 @@ stateDiagram-v2
 | State | Online Nodes | Signing | Fault Tolerance | Alert Level | Response |
 |---|---|---|---|---|---|
 | **Healthy** | 5/5 | Active | Can lose 2 nodes | None | Normal operations |
-| **Degraded** | 4/5 | Active | Can lose 1 more node | Warning | On-call notified; recover failed node |
-| **Critical** | 3/5 | Active | **Zero** — any failure halts signing | Critical | Page on-call; immediate recovery |
-| **Unavailable** | 0–2/5 | **Halted** | N/A | Emergency | All hands; incident commander assigned |
+| **Degraded** | 4/5 | Active | Can lose 1 more node | Warning | On-call notified; replace node + redistribute share before additional failures |
+| **Critical** | 3/5 | Active | **Zero** — any failure causes quorum loss and key regeneration | Critical | Page on-call; immediate node replacement |
+| **Unavailable** | 0–2/5 | **Halted** | N/A — key regeneration required | Emergency | All hands; new DKG ceremony required |
 | **Recovering** | Transitioning | Depends on count | Depends on count | Info | Monitor recovery progress |
 
 ### Monitoring Integration
@@ -594,67 +565,57 @@ Clock drift is distinct from a node failure in an important way: the node is sti
 
 ## 10. Attestation Failure
 
-Attestation is the mechanism by which a node proves to the KMS (and to its peers) that it is running the correct software in a genuine AMD SEV-SNP confidential VM. An attestation failure means the node **cannot unseal its key share** and **cannot participate in signing**.
+Attestation is the mechanism by which nodes prove to each other (via mutual attestation) that they are running the correct, immutable software in genuine AMD SEV-SNP confidential VMs. Under the immutable software model, the launch measurement **never changes** during the lifetime of a signing key — software changes are all-or-nothing key rotation events (see [Operations and Deployment](05-operations-and-deployment.md)). An attestation failure means the node **cannot join or remain in the cluster** and **cannot participate in signing**.
 
 ### Causes
 
+Under the immutable software model, attestation failures have a narrower set of causes than in a rolling-update model:
+
 | Cause | Scenario | Frequency |
 |---|---|---|
-| **AMD-SP firmware update** | The cloud provider updates the AMD Secure Processor firmware, changing the platform measurement. The KMS attestation policy expects the old measurement. | Uncommon — providers give advance notice |
-| **Application update mismatch** | A new version of the TSA application is deployed, but the KMS attestation policy was not updated to expect the new launch measurement. | Operational error — should be caught in staging |
-| **KMS policy misconfiguration** | The attestation policy in the KMS is incorrect (e.g., wrong measurement value, wrong policy flags). | Operational error |
+| **Wrong software image deployed** | A node was booted with a different application image than the rest of the cluster. The launch measurement does not match the expected value. | Operational error — should be caught by automation |
 | **AMD-SP hardware failure** | The AMD Secure Processor on the host is malfunctioning and cannot produce valid attestation reports. | Rare |
-| **Debugging flags enabled** | The VM was launched with debugging enabled, which the KMS policy correctly rejects (debugging allows memory inspection). | Should not happen in production |
+| **Platform firmware change** | The cloud provider updates AMD-SP firmware, changing the platform TCB version. The launch measurement is unchanged, but the platform TCB version in the attestation report differs. | Uncommon — providers give advance notice |
+| **Debugging flags enabled** | The VM was launched with debugging enabled, which mutual attestation correctly rejects (debugging allows memory inspection). | Should not happen in production |
 
 ### Impact
 
-- The node **cannot obtain the KMS wrapping key** — the KMS rejects the attestation report
-- Without the wrapping key, the outer envelope of the sealed share cannot be decrypted
-- The node **cannot participate in signing**
+- The node **fails mutual attestation** — peer nodes reject it as an invalid cluster member
+- The node **cannot receive a key share** (for new nodes) or **is excluded from signing** (for existing nodes)
 - The cluster treats it as an offline node (Degraded, Critical, or Unavailable depending on how many nodes are affected)
 
 ### Recovery
 
-**For firmware/application updates** (most common):
+**For wrong software image** (most common):
 
-1. **Before** deploying any update that changes measurements, update the KMS attestation policy to accept the new measurement.
-2. Recommended procedure: update KMS policy → deploy to 1 node → verify attestation succeeds → roll out to remaining nodes one at a time.
-3. If the policy was not updated before deployment: update the KMS policy to match the new measurement. The node will re-attest on the next attempt and succeed.
-
-**For KMS policy misconfiguration**:
-
-1. Compare the node's actual attestation report (available in application logs) with the KMS policy.
-2. Identify the mismatch (measurement, policy flags, or platform version).
-3. Correct the KMS policy.
-4. The node re-attests and unseals.
+1. The node's attestation report shows a launch measurement that does not match the other nodes.
+2. **Replace the node** with one running the correct immutable software image.
+3. The replacement node attests with the correct measurement, passes mutual attestation, and receives a share via redistribution.
+4. There is no KMS policy to update — mutual attestation between nodes directly compares measurements.
 
 **For AMD-SP hardware failure**:
 
-1. The node cannot produce valid attestation reports regardless of policy.
+1. The node cannot produce valid attestation reports regardless of software image.
 2. Replace the node — provision a new CVM on a different host.
-3. Follow the Tier 2 or Tier 3 recovery from Section 2.
+3. Follow the standard recovery procedure from Section 2.
 
-### Rolling Update Procedure
+**For platform firmware changes**:
 
-To avoid attestation failures during application updates, always follow this sequence:
+1. Platform firmware changes (AMD-SP updates by the cloud provider) change the **platform TCB version** but not the **launch measurement**.
+2. The mutual attestation between nodes can be configured to **pin the launch measurement** (which must match exactly) while **accepting a range of platform TCB versions** (allowing firmware updates across nodes).
+3. If the platform TCB version is outside the accepted range, update the cluster's attestation policy to accept the new platform TCB version. This does not affect the software measurement or the signing key.
+4. If the firmware change causes actual issues (e.g., attestation reports are malformed), replace the affected node.
 
-```mermaid
-flowchart LR
-    A["1. Build new<br/>application image"]
-    B["2. Calculate new<br/>launch measurement"]
-    C["3. Update KMS policy<br/>to accept BOTH old<br/>and new measurements"]
-    D["4. Deploy to Node 1<br/>Verify attestation OK"]
-    E["5. Deploy to Node 2<br/>Verify attestation OK"]
-    F["6. Continue rolling<br/>deploy to all nodes"]
-    G["7. Remove old measurement<br/>from KMS policy"]
+### Software Changes and Attestation
 
-    A --> B --> C --> D --> E --> F --> G
+Under the immutable software model, there is **no rolling update procedure** for software changes. Software is immutable for the lifetime of a signing key. When a software change is needed:
 
-    style C fill:#2a5a8a,color:#fff
-    style G fill:#2a5a8a,color:#fff
-```
+1. **All nodes are replaced** with the new software image (new launch measurement).
+2. A **new DKG ceremony** produces a new signing key.
+3. A **new certificate** is obtained from the CA, binding the new measurement to the new key.
+4. The old certificate remains valid for verifying timestamps issued under the old software.
 
-During the rolling update, the KMS policy accepts **both** the old and new measurements. This ensures that already-updated nodes and not-yet-updated nodes can both attest successfully. After all nodes are updated, the old measurement is removed from the policy. See [Operations and Deployment](05-operations-and-deployment.md) for the detailed deployment runbook.
+This is a coordinated key rotation event, not a rolling update. See [Operations and Deployment](05-operations-and-deployment.md) for the software version change procedure.
 
 ---
 
@@ -743,18 +704,18 @@ In the unlikely event of a three-way partition (e.g., each provider's nodes isol
 
 | Failure Mode | Section | Signing Impact | Key Material | Recovery Time |
 |---|---|---|---|---|
-| 1 node down | [Section 2](#2-single-node-failure) | None — continues | Safe | 2–30 min |
-| 2 nodes down | [Section 3](#3-two-node-failure) | None — continues (zero margin) | Safe | 2–30 min |
-| 3+ nodes down | [Section 4](#4-three-or-more-node-failure) | **Halted** | Safe | 5–30 min |
-| All nodes down | [Section 5](#5-all-node-failure-complete-outage) | **Halted** | Safe | 5–30 min |
-| Key loss (≥3 shares) | [Section 6](#6-irrecoverable-key-loss) | **Halted** — new key needed | **Lost** | Hours (new DKG + cert) |
-| Key compromise (< t shares) | [Section 6](#6-irrecoverable-key-loss) | None — share refresh | Safe (after refresh) | Minutes |
-| Key compromise (≥ t shares) | [Section 6](#6-irrecoverable-key-loss) | **Halted** — revoke + new key | **Compromised** | Hours (new DKG + cert) |
-| Single provider outage | [Section 7](#7-multi-provider-resilience) | None — continues | Safe | N/A (automatic) |
-| Two provider outage | [Section 7](#7-multi-provider-resilience) | **Halted** | Safe | Depends on providers |
-| Clock drift | [Section 9](#9-clock-drift-failure) | Degraded (node excluded) | Safe | Seconds–minutes |
-| Attestation failure | [Section 10](#10-attestation-failure) | Degraded (node excluded) | Safe (sealed) | Minutes |
-| Network partition | [Section 11](#11-network-partition) | Depends on partition | Safe | Automatic on resolution |
+| 1 node down | [Section 2](#2-single-node-failure) | None — continues | 1 share lost; 4 remain | 7–15 min (replace + redistribute) |
+| 2 nodes down | [Section 3](#3-two-node-failure) | None — continues (zero margin) | 2 shares lost; 3 remain | 7–15 min per node |
+| 3+ nodes down | [Section 4](#4-three-or-more-node-failure) | **Halted** | **Key lost** — new DKG required | 12–37 min (DKG + cert) |
+| All nodes down | [Section 5](#5-all-node-failure-complete-outage) | **Halted** | **Key lost** — new DKG required | 12–37 min (DKG + cert) |
+| Quorum loss (< 3 shares) | [Section 6](#6-key-regeneration-after-quorum-loss) | **Halted** — new key needed | **Key lost** (by design) | 12–37 min (DKG + cert) |
+| Key compromise (< t shares) | [Section 6](#6-key-regeneration-after-quorum-loss) | None — share refresh | Safe (after refresh) | Minutes |
+| Key compromise (≥ t shares) | [Section 6](#6-key-regeneration-after-quorum-loss) | **Halted** — revoke + new key | **Compromised** | DKG + cert + forensics |
+| Single provider outage | [Section 7](#7-multi-provider-resilience) | None — continues | 1–2 shares lost; ≥3 remain | Replace + redistribute |
+| Two provider outage | [Section 7](#7-multi-provider-resilience) | **Halted** | **Key lost** — new DKG required | 12–37 min (DKG + cert) |
+| Clock drift | [Section 9](#9-clock-drift-failure) | Degraded (node excluded) | Share safe in memory | Seconds–minutes |
+| Attestation failure | [Section 10](#10-attestation-failure) | Degraded (node excluded) | Share lost if node replaced | 7–15 min (replace + redistribute) |
+| Network partition | [Section 11](#11-network-partition) | Depends on partition | Shares safe in memory | Automatic on resolution |
 
 ---
 

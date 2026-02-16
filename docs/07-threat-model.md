@@ -16,7 +16,7 @@ CC-TSA is designed to resist six classes of adversaries, each with distinct capa
 |---|---|
 | **Capability** | Full control over hypervisor, physical hardware access, network interception within their infrastructure, access to host OS and management plane |
 | **Goal** | Read key shares, forge timestamps, manipulate time, or deny service |
-| **CC-TSA defense** | AMD SEV-SNP excludes hypervisor from TCB; memory encrypted with per-VM AES-128-XEX key managed by AMD-SP; key shares exist only in encrypted enclave memory; no single provider hosts ≥3 nodes (threshold); KMS releases keys only to attested enclaves |
+| **CC-TSA defense** | AMD SEV-SNP excludes hypervisor from TCB; memory encrypted with per-VM AES-128-XEX key managed by AMD-SP; key shares exist only in encrypted enclave memory (ephemeral, never persisted); no single provider hosts ≥3 nodes (threshold); mutual attestation between nodes verifies correct software |
 
 ### A2: Network Attacker
 
@@ -40,7 +40,7 @@ CC-TSA is designed to resist six classes of adversaries, each with distinct capa
 |---|---|
 | **Capability** | Operator with administrative access to CC-TSA infrastructure, cloud consoles, deployment pipelines — but cannot access AMD-SP internals or enclave memory |
 | **Goal** | Forge timestamps, extract key material, issue backdated tokens, or sabotage the system |
-| **CC-TSA defense** | Key shares exist only in enclave memory (inaccessible to OS-level operators); DKG requires 4-eyes principle; KMS key release requires valid attestation (cannot be faked by operator); all operations logged with attestation-bound audit entries; SecureTSC prevents time manipulation by operators |
+| **CC-TSA defense** | Key shares exist only in enclave memory (inaccessible to OS-level operators); software is immutable for key lifetime (operator cannot change software without triggering key rotation); DKG requires 4-eyes principle; all operations logged with attestation-bound audit entries; SecureTSC prevents time manipulation by operators |
 
 ### A5: Physical Attacker
 
@@ -56,7 +56,7 @@ CC-TSA is designed to resist six classes of adversaries, each with distinct capa
 |---|---|
 | **Capability** | Compromise the software supply chain — OS packages, application dependencies, firmware updates, container base images |
 | **Goal** | Introduce backdoor that leaks key material, manipulates signing, or weakens cryptographic operations |
-| **CC-TSA defense** | Attestation measurement covers the full boot chain (OVMF firmware → kernel → application); any supply chain modification changes the launch measurement; KMS attestation policy rejects unexpected measurements; reproducible builds enable independent verification |
+| **CC-TSA defense** | Attestation measurement covers the full boot chain (OVMF firmware → kernel → application); any supply chain modification changes the launch measurement; mutual attestation between nodes rejects unexpected measurements; measurement is bound to the TSA certificate (supply chain compromise requires CA cooperation for a new certificate); reproducible builds enable independent verification |
 
 ---
 
@@ -69,11 +69,12 @@ CC-TSA explicitly documents what it trusts and what it does not.
 | AMD silicon (CPU, AMD-SP) | **Yes** | Hardware root of trust. Provides memory encryption, attestation, SecureTSC. If AMD-SP is fundamentally compromised, the security model breaks. Mitigated by: Intel TDX as alternative, AMD's security response track record, wide deployment and scrutiny. |
 | AMD-SP firmware | **Yes** | Provides attestation reports, SecureTSC calibration, memory encryption key management. Firmware is versioned and its version is included in attestation reports. |
 | Hypervisor / cloud provider | **No** | Explicitly excluded from TCB by SEV-SNP. The hypervisor manages the VM lifecycle but cannot read or modify guest memory. This is the core trust advantage over traditional infrastructure. |
-| Cloud provider KMS | **Partially** | KMS **availability** is trusted — it must be online to release wrapping keys. KMS **confidentiality** relies on attestation gating — KMS only releases keys to enclaves with matching measurements. A provider could deny service (DoS) but cannot extract the wrapped key share without a valid enclave. |
+| Cloud provider KMS | **Not in critical path** | KMS is not used for key share storage or unsealing. Key shares are ephemeral (in-memory only). KMS may be used for ancillary purposes (e.g., TLS certificate storage), but it is not in the critical path for signing key management. A KMS outage does not affect signing operations. |
 | NTS time sources | **Majority honest** | ≥3 of 4 sources must be honest (Byzantine fault tolerance). A single compromised NTS source cannot shift time beyond the TriHaRd detection threshold. Sources are selected from diverse, independent operators. |
 | Other enclave nodes | **< threshold compromised** | At most 2 of 5 nodes may be compromised simultaneously. If ≥3 are compromised, the adversary can forge signatures. Multi-provider distribution makes coordinated compromise of ≥3 nodes extremely difficult. |
 | Certificate Authority | **Yes** | The CA must correctly validate CSRs and issue certificates. CA compromise breaks the trust chain for new certificates. Mitigated by certificate transparency logs and short-lived certificates. |
-| TSA application code | **Yes** | The application is measured at boot and its measurement is part of the attestation report. It must be correct, audited, and built reproducibly. Bugs in the application are within the TCB. |
+| TSA application code | **Yes** | The application is measured at boot and its measurement is part of the attestation report. Under the immutable software model, the application code is **fixed for the lifetime of a signing key** — its measurement is published and cryptographically bound to the TSA certificate. Relying parties can independently verify the measurement against the published, reproducibly-built binary. Any software change triggers key rotation (new DKG + new certificate), making the measurement a verifiable part of the TSA's cryptographic identity. Bugs in the application are within the TCB. |
+| Software immutability | **Yes (enforced)** | Operators cannot modify the running software without triggering key rotation (new DKG + new certificate). The attestation measurement is bound to the certificate — changing the software changes the measurement, which requires a new key and a new certificate. This removes the operator from the trust chain for signing operations: they can deploy new software, but doing so visibly changes the TSA's cryptographic identity. |
 
 ---
 
@@ -102,7 +103,6 @@ graph TB
     end
 
     subgraph EXTERNAL["External Services"]
-        KMS["KMS<br/>(Azure Key Vault / GCP Cloud KMS)"]
         NTS["NTS Time Sources (4+)"]
         CA["Certificate Authority"]
     end
@@ -113,8 +113,7 @@ graph TB
     ATTACKER_NET -.->|"Attack: MITM"| CLIENT
     ATTACKER_CLOUD -.->|"Attack: Memory read<br/>BLOCKED by SEV-SNP"| CVM
     AMDSP -->|"Attestation reports<br/>SecureTSC calibration<br/>Memory encryption keys"| CVM
-    ATTEST_CLIENT -->|"Attestation report"| KMS
-    KMS -->|"Wrapping key<br/>(only if attestation valid)"| ATTEST_CLIENT
+    ATTEST_CLIENT -->|"Mutual attestation"| VERIFIER
     APP -->|"NTS-authenticated NTP"| NTS
     CVM -.->|"Attestation report"| VERIFIER
 
@@ -146,8 +145,7 @@ graph TB
 | Spoofed timestamp request | TSA endpoint | Low | TLS 1.3; optional client certificates; nonce in request prevents replay | Minimal — unauthenticated clients can request timestamps (by design, per RFC 3161) |
 | Spoofed node identity | Inter-node communication | High | Mutual remote attestation during DKG and signing; mTLS with attestation-bound certificates | Residual: if AMD-SP is compromised, fake attestation possible |
 | Spoofed NTS response | Time synchronization | Medium | NTS authentication (RFC 8915); 4 sources with BFT; TriHaRd cross-validation | Residual: if ≥2 of 4 NTS sources AND SecureTSC are compromised |
-| Spoofed attestation report | KMS key release | Critical | AMD-SP-signed reports verified against AMD VCEK/VLEK certificate chain rooted in AMD's hardware root | Residual: if AMD-SP signing key is extracted (requires physical attack on the silicon) |
-| Spoofed KMS response | Key share unsealing | High | TLS to KMS endpoint; KMS authenticated via cloud provider certificate chain | Residual: if cloud provider's TLS infrastructure is compromised |
+| Spoofed attestation report | Mutual attestation / cluster join | Critical | AMD-SP-signed reports verified against AMD VCEK/VLEK certificate chain rooted in AMD's hardware root; nodes verify each other's attestation before sharing key material | Residual: if AMD-SP signing key is extracted (requires physical attack on the silicon) |
 
 ### Tampering
 
@@ -157,7 +155,7 @@ graph TB
 | Timestamp manipulation (genTime) | TSTInfo | Critical | SecureTSC (AMD-SP calibrated, hardware-protected); TriHaRd cross-node validation; NTS for UTC reference | Residual: AMD-SP SecureTSC implementation bug |
 | Application code tampering | TSA binary | High | Launch measurement in attestation report; dm-verity for runtime integrity; reproducible builds | Residual: compromised build pipeline producing a valid but backdoored measurement |
 | DKG protocol tampering | Key generation | High | Attested TLS channels; Feldman VSS commitment verification; each node independently verifies all commitments | Residual: subtle protocol implementation bug |
-| Sealed share tampering | Persistent storage | Medium | Double-envelope encryption; outer envelope integrity via KMS; inner envelope integrity via enclave sealing | Residual: corruption detected on unseal, share is unusable (triggers recovery, not forgery) |
+| Key share persistence attack | Persistent storage | **Eliminated** | Key shares are ephemeral — they exist only in enclave memory and are never written to persistent storage. There is no at-rest key material to tamper with. | N/A — attack surface removed by ephemeral key model |
 
 ### Repudiation
 
@@ -171,7 +169,7 @@ graph TB
 
 | Threat | Target | Severity | Mitigation | Residual Risk |
 |---|---|---|---|---|
-| Key share extraction | Enclave memory | Critical | SEV-SNP memory encryption; shares never leave enclave except double-encrypted; multi-provider means ≥3 enclaves must be breached | Residual: novel hardware attack on AMD-SP |
+| Key share extraction | Enclave memory | Critical | SEV-SNP memory encryption; shares exist only in hardware-encrypted enclave memory during operation (no at-rest copies); multi-provider means ≥3 enclaves must be breached | Residual: novel hardware attack on AMD-SP. Attack surface is runtime-only — no sealed blobs or persistent key material to target at rest. |
 | Key share leakage via side-channel | CPU microarchitecture | High | SEV-SNP mitigates many side channels; VMPL isolation; monitor AMD security advisories | Residual: undiscovered side-channel (e.g., CacheWarp-like) |
 | Timestamp content leakage | Network | Low | TLS 1.3 in transit; timestamps are typically public artifacts by nature | Minimal — timestamps are designed to be shared |
 | Attestation report information | Node metadata | Low | Attestation reports are designed to be public; they contain platform info but no secrets | Minimal — by design |
@@ -183,7 +181,7 @@ graph TB
 | DDoS on TSA endpoint | Load balancer / nodes | Medium | Rate limiting at load balancer; CDN/anycast; signing capacity far exceeds expected load | Residual: sustained volumetric attack beyond CDN capacity |
 | Cloud provider outage | Enclave nodes | Medium | Multi-provider deployment; no provider hosts ≥3 nodes; cold standbys | Residual: simultaneous outage of 2+ providers (very unlikely) |
 | NTS source unavailability | Time synchronization | Medium | 4+ sources; tolerate 1 failure; SecureTSC continues interpolating between queries | Residual: if all 4 NTS sources fail, SecureTSC drift accumulates |
-| KMS unavailability | Key unsealing on restart | Medium | KMS services have SLA (99.99%+); shares remain sealed but safe; retry on KMS recovery | Residual: extended KMS outage prevents node recovery |
+| Node unavailability | Key share loss on node failure | Medium | Multi-provider deployment; threshold tolerates up to 2 node losses; share redistribution to replacement nodes | Residual: loss of ≥3 nodes simultaneously requires key regeneration (new DKG + new certificate) — by design |
 | Network partition | Node communication | Medium | Multi-provider/region deployment; threshold ensures at most one partition can sign | Residual: three-way partition halts signing (safe failure) |
 
 ### Elevation of Privilege
@@ -191,7 +189,7 @@ graph TB
 | Threat | Target | Severity | Mitigation | Residual Risk |
 |---|---|---|---|---|
 | Hypervisor → enclave memory | Key shares | Critical | SEV-SNP hardware boundary; RMP enforces page ownership; hypervisor cannot map guest pages | Residual: AMD-SP firmware bug allowing hypervisor bypass |
-| Operator → enclave secrets | Key shares | Critical | Enclave memory inaccessible to OS-level operators; KMS requires attestation (operator cannot fake); no debug mode in production | Residual: operator could redeploy a backdoored image (detected by measurement change) |
+| Operator → enclave secrets | Key shares | Critical | Enclave memory inaccessible to OS-level operators; software is immutable for key lifetime; no debug mode in production | Residual: operator cannot redeploy a backdoored image without triggering key rotation and new certificate issuance — the old certificate is bound to the old measurement, so a backdoored image requires a new DKG (producing a new public key and new certificate), which is visible to all relying parties and requires CA cooperation. This changes the threat from "detected" to **structurally prevented**. |
 | Single node → full signing key | Threshold integrity | High | 3-of-5 threshold; each node holds only one share; need ≥3 shares to sign; shares distributed across providers | Residual: if attacker compromises 3+ independent enclaves |
 | Client → TSA operations | Signing behavior | Low | RFC 3161 protocol limits client influence to request parameters; server validates all inputs | Minimal |
 
@@ -267,7 +265,7 @@ If lattice-based cryptography is broken:
 
 1. Generate SLH-DSA-128f signing key pair (non-threshold — SLH-DSA is stateless hash-based and difficult to threshold)
 2. Obtain new X.509 certificate from CA for SLH-DSA public key
-3. Deploy SLH-DSA certificate and private key to enclave nodes (key stored in enclave memory with double-envelope encryption)
+3. Deploy SLH-DSA certificate and private key to enclave nodes (key stored in enclave memory only)
 4. Switch signing to: SLH-DSA-128f (primary) + ML-DSA (deprecated, kept for continuity) or SLH-DSA-128f (primary) + ECDSA (classical, for backward compatibility)
 5. Accept increased token size (~17 KB for SLH-DSA signature vs ~3.3 KB for ML-DSA)
 6. Accept reduced signing throughput (~100 signs/sec for SLH-DSA vs ~100K for ML-DSA)
@@ -284,8 +282,8 @@ If lattice-based cryptography is broken:
 | R4 | All 4 NTS sources compromised | Very Low | Medium | SecureTSC provides independent hardware time reference; TriHaRd cross-validation detects inconsistency between NTS and peer clocks; diverse NTS providers | NTS sources are operated by independent national metrology institutes and major providers. Coordinated compromise would require attacking 4 separate organizations. |
 | R5 | CA compromise | Low | High | Certificate transparency logs detect mis-issuance; short-lived TSA certificates limit exposure; OCSP stapling for real-time revocation; multiple CA options | CA trust is inherent to all PKI-based systems. Not unique to CC-TSA. Standard mitigations apply. |
 | R6 | Side-channel attack on SEV-SNP | Low | High | Apply AMD patches promptly; attestation report includes microcode version (can enforce minimum versions); VMPL isolation reduces attack surface | Known side channels (CacheWarp, SEV-Step) have been patched. Ongoing academic research is actively finding and responsibly disclosing new attacks, which are being addressed. |
-| R7 | Supply chain compromise of TSA application | Low | Critical | Reproducible builds; attestation measurement detects any binary change; code review; dependency pinning; SBOM generation | Attestation provides strong detection — any supply chain modification changes the measurement and is immediately visible. This reduces the risk from "undetectable" to "detectable." |
-| R8 | KMS provider collusion | Very Low | High | Double-envelope encryption (KMS alone is insufficient — also need enclave sealing key); multi-provider KMS; KMS cannot decrypt without presenting a valid enclave to unseal the inner envelope | KMS providers are major cloud companies with strong security programs. Even if a KMS provider extracts the outer-encrypted blob, they cannot decrypt the inner envelope without the enclave sealing key. |
+| R7 | Supply chain compromise of TSA application | Low | Critical | Reproducible builds; attestation measurement detects any binary change; code review; dependency pinning; SBOM generation | Supply chain compromise now requires **CA cooperation** to produce a valid certificate for the compromised binary. The measurement is bound to the certificate, so a compromised binary with a different measurement cannot reuse the existing certificate — it would require a new DKG (producing a new public key) and CA issuance of a new certificate for that key+measurement. This makes supply chain attacks visible to all relying parties. |
+| R8 | Simultaneous loss of ≥3 nodes | Low | Medium | Multi-provider deployment (no provider hosts ≥3 nodes); geographic distribution across Azure, GCP, and a third provider; proactive node monitoring and replacement | Simultaneous loss of ≥3 nodes requires key regeneration (new DKG + new certificate). This is by design — the ephemeral key model accepts this tradeoff for stronger trust guarantees. Creates a brief service interruption (12–37 minutes). Mitigated by multi-provider deployment making simultaneous loss of ≥3 nodes across 2+ providers extremely unlikely. |
 
 ---
 
@@ -327,7 +325,7 @@ If lattice-based cryptography is broken:
 2. TriHaRd cross-validation confirms time consistency across all 5 nodes
 3. Monotonic clock enforcement in the TSA application prevents any time reversal
 4. The operator cannot access enclave memory to modify the time validation logic
-5. Any attempt to deploy a modified binary changes the attestation measurement, and KMS rejects the attestation
+5. Any attempt to deploy a modified binary changes the attestation measurement — peer nodes reject the modified node's attestation, and a new DKG with the modified software would produce a different key requiring a new certificate (visible to all relying parties)
 
 **Result**: Attack fails. The operator cannot influence the genTime value in any way.
 
