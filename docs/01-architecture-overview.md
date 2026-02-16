@@ -675,6 +675,7 @@ rather than from distributing a single TSA's nodes across providers.
 - Lower signing latency: intra-provider round-trips for threshold signing are consistently low.
 - Independent failure domains: each TSA cluster can be operated, upgraded, and recovered independently.
 - Simpler per-TSA operations: DKG ceremonies, monitoring, and incident response are scoped to a single provider.
+- Independent certificate chains: each single-provider TSA could have its own certificate chain, which some compliance frameworks might prefer for organizational or jurisdictional separation.
 
 **Why it was rejected:**
 
@@ -711,13 +712,27 @@ Every consumer of timestamps would need custom logic to:
 (c) reason about cross-provider coverage when verifying.
 This is a non-standard workflow that no existing verification tool supports.
 
+5. **A TSA aggregation proxy does not resolve the fundamental issue.**
+One might consider a gateway that internally fans out to multiple single-provider TSAs
+and returns one token to the client.
+However, such a proxy would need to either (a) select one provider's token to return —
+losing multi-provider assurance in the token itself — or (b) bundle multiple tokens,
+which still requires clients to understand and verify the bundle format.
+RFC 3161 defines one `TimeStampResp` per `TimeStampReq`;
+there is no standard envelope for a multi-TSA token bundle.
+The cross-provider threshold approach avoids this problem entirely
+because the single token is genuinely co-signed by nodes across providers.
+
 **Conclusion:** The cross-provider threshold design gives every standard RFC 3161 client
 multi-provider assurance in a single token with zero client-side changes.
 A client points at one TSA URL, receives one token,
 and that token inherently carries the guarantee
 that nodes across multiple cloud providers participated in its creation.
-This is strictly more practical than any alternative
+This is strictly more practical than the multi-TSA alternative
 requiring client-side multi-TSA coordination.
+
+See also [RFC 3161 Compliance — Client Ecosystem Constraints](06-rfc3161-compliance.md#7-client-ecosystem-constraints)
+for how standard RFC 3161 clients and PDF signing tools reinforce this design choice.
 
 ---
 
