@@ -1,19 +1,31 @@
-name: Deploy Confidential Computing
+name: Deploy Confidential VM
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
+
+concurrency:
+  group: azure-cvm-deploy
+  cancel-in-progress: true
 
 permissions:
   id-token: write
   contents: read
 
 jobs:
-  deploy:
+  deploy-and-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      ARM_USE_OIDC: true
+      ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      TF_VAR_resource_prefix: "cctsa-${{ github.run_id }}"
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Login to Azure
         uses: azure/login@v1
@@ -22,17 +34,73 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Deploy resources
-        run: |
-          az group create --name demo-rg --location eastus
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
 
-      - name: Verify deployment
-        run: |
-          state=$(az group show --name demo-rg --query "properties.provisioningState" -o tsv)
-          echo "Provisioning state: $state"
-          [ "$state" = "Succeeded" ] || exit 1
+      - name: Terraform Init
+        working-directory: infra
+        run: terraform init
 
-      - name: Teardown resources
+      - name: Terraform Plan
+        working-directory: infra
+        run: terraform plan -out=tfplan
+
+      - name: Terraform Apply
+        working-directory: infra
+        run: terraform apply -auto-approve tfplan
+
+      - name: Extract Terraform Outputs
+        id: tf
+        working-directory: infra
+        run: |
+          echo "vm_ip=$(terraform output -raw vm_public_ip)" >> "$GITHUB_OUTPUT"
+          terraform output -raw ssh_private_key > ~/.ssh_key
+          chmod 600 ~/.ssh_key
+          echo "rg_name=$(terraform output -raw resource_group_name)" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for SSH and cloud-init
+        run: |
+          VM_IP="${{ steps.tf.outputs.vm_ip }}"
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -i ~/.ssh_key"
+
+          echo "Waiting for SSH on $VM_IP..."
+          for i in $(seq 1 30); do
+            if ssh $SSH_OPTS azureuser@"$VM_IP" "test -f /tmp/cloud-init-complete" 2>/dev/null; then
+              echo "VM is ready (attempt $i)"
+              exit 0
+            fi
+            echo "Attempt $i/30 — waiting 10s..."
+            sleep 10
+          done
+          echo "Timed out waiting for VM to be ready"
+          exit 1
+
+      - name: Run attestation tests
+        run: |
+          VM_IP="${{ steps.tf.outputs.vm_ip }}"
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ~/.ssh_key"
+
+          scp $SSH_OPTS infra/scripts/test-attestation.sh azureuser@"$VM_IP":/tmp/test-attestation.sh
+          ssh $SSH_OPTS azureuser@"$VM_IP" "sudo bash /tmp/test-attestation.sh"
+
+      - name: Terraform Destroy
+        if: always()
+        working-directory: infra
+        run: terraform destroy -auto-approve
+
+      - name: Fallback resource group cleanup
         if: always()
         run: |
-          az group delete --name demo-rg --yes --no-wait
+          RG_NAME="cctsa-${{ github.run_id }}-rg"
+          if az group show --name "$RG_NAME" &>/dev/null; then
+            echo "Fallback: deleting resource group $RG_NAME"
+            az group delete --name "$RG_NAME" --yes --no-wait
+          else
+            echo "Resource group $RG_NAME already deleted"
+          fi
+
+      - name: Cleanup SSH key
+        if: always()
+        run: rm -f ~/.ssh_key

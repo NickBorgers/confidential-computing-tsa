@@ -1,0 +1,8 @@
+#cloud-config
+package_update: true
+packages:
+  - tpm2-tools
+  - jq
+  - curl
+runcmd:
+  - touch /tmp/cloud-init-complete

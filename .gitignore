@@ -16,3 +16,11 @@ Thumbs.db
 # Environment
 .env
 .env.local
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfplan
+tfplan
+crash.log

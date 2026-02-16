@@ -33,6 +33,17 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
     && apt-get install -y gh \
     && rm -rf /var/lib/apt/lists/*
 
+# Install Azure CLI (auth is bind-mounted from host's ~/.azure)
+RUN curl -sL https://aka.ms/InstallAzureCLIDeb | bash \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Terraform (for infra/ validation and planning)
+RUN curl -fsSL https://apt.releases.hashicorp.com/gpg | gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/hashicorp.list > /dev/null \
+    && apt-get update \
+    && apt-get install -y terraform \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install Node.js LTS (needed for Claude Code and Playwright)
 ARG NODE_VERSION=20
 RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash - \
@@ -79,7 +90,6 @@ RUN cd ~/.claude/plugins/cache/playwright-skill/playwright-skill/*/skills/playwr
 
 # Switch back to root for any remaining operations
 USER root
-
 # --- Future: Uncomment to add Rust toolchain ---
 # RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
 #     && . /home/vscode/.cargo/env \
