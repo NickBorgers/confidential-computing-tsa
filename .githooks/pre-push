@@ -4,8 +4,8 @@
 #
 # Checks performed:
 #   - markdownlint on all Markdown files (always)
-#   - cargo fmt --check (when Cargo.toml exists)
-#   - cargo clippy -- -D warnings (when Cargo.toml exists)
+#   - cargo fmt --check (when Cargo.toml exists, matches CI)
+#   - cargo clippy -- -D warnings (when Cargo.toml exists, matches CI)
 #   - cargo test (when Cargo.toml exists)
 #   - Docker build and smoke test (when Dockerfile exists and Docker is available)
 
@@ -29,10 +29,10 @@ fi
 # Run Rust checks if Cargo.toml exists
 if [ -f "Cargo.toml" ]; then
     echo "pre-push: checking Rust formatting..."
-    cargo fmt --all -- --check
+    cargo fmt --check
 
     echo "pre-push: running clippy..."
-    cargo clippy --all-targets -- -D warnings
+    cargo clippy -- -D warnings
 
     echo "pre-push: running tests..."
     cargo test
@@ -44,6 +44,10 @@ if [ -f "Dockerfile" ] && command -v docker >/dev/null 2>&1; then
     IMAGE_TAG="cc-tsa-pre-push:$$"
     CONTAINER_NAME="pre-push-smoke-$$"
 
+    # Use a random high port to avoid conflicts with other local services
+    HOST_PORT=$(shuf -i 49152-65535 -n 1)
+    echo "pre-push: using host port $HOST_PORT for smoke test"
+
     cleanup() {
         docker stop "$CONTAINER_NAME" >/dev/null 2>&1 || true
         docker rm "$CONTAINER_NAME" >/dev/null 2>&1 || true
@@ -53,7 +57,7 @@ if [ -f "Dockerfile" ] && command -v docker >/dev/null 2>&1; then
 
     docker build -t "$IMAGE_TAG" .
 
-    docker run -d --name "$CONTAINER_NAME" -p 8080:8080 "$IMAGE_TAG"
+    docker run -d --name "$CONTAINER_NAME" -p "$HOST_PORT:8080" "$IMAGE_TAG"
 
     echo "pre-push: waiting for container health check (max 30s)..."
     for i in $(seq 1 30); do
@@ -63,7 +67,7 @@ if [ -f "Dockerfile" ] && command -v docker >/dev/null 2>&1; then
             exit 1
         fi
 
-        if curl -sf http://localhost:8080/health >/dev/null 2>&1; then
+        if curl -sf "http://localhost:$HOST_PORT/health" >/dev/null 2>&1; then
             echo "pre-push: container smoke test passed"
             break
         fi
