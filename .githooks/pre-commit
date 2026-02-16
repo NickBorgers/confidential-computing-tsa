@@ -1,0 +1,32 @@
+#!/bin/sh
+# Pre-commit hook: fast checks only.
+# Runs formatting and lint checks to catch issues before they enter version control.
+#
+# Checks performed:
+#   - markdownlint on all Markdown files (always)
+#   - cargo fmt --check (when Cargo.toml exists)
+
+set -e
+
+# Change to repository root
+cd "$(git rev-parse --show-toplevel)"
+
+echo "pre-commit: running checks..."
+
+# Always run markdownlint if available
+if command -v markdownlint >/dev/null 2>&1; then
+    if [ -f ".markdownlint.json" ]; then
+        echo "pre-commit: checking markdown formatting..."
+        markdownlint '**/*.md' --config .markdownlint.json
+    fi
+else
+    echo "pre-commit: markdownlint not found, skipping markdown checks"
+fi
+
+# Run Rust formatting check if Cargo.toml exists
+if [ -f "Cargo.toml" ]; then
+    echo "pre-commit: checking Rust formatting..."
+    cargo fmt --all -- --check
+fi
+
+echo "pre-commit: all checks passed."
