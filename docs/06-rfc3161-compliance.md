@@ -428,6 +428,30 @@ Because the ML-DSA-65 signature is produced via 3-of-5 threshold signing
 (see [Quantum-Safe Threshold Cryptography](03-quantum-safe-threshold-crypto.md)),
 the output is indistinguishable from a single-signer ML-DSA-65 signature.
 
+### 4.1 CVM/Wrapper Split for CMS Construction
+
+In the two-layer architecture, the CMS `SignedData` construction is split between the CVM core and the wrapper:
+
+**CVM core produces (inside attested enclave):**
+- DER-encoded `TSTInfo` (template-based construction, no ASN.1 library)
+- DER-encoded `signedAttrs` SET containing `contentType`, `messageDigest` (SHA-384 of TSTInfo), and `signingCertificateV2`
+- ECDSA P-384 signature over the `signedAttrs` DER
+
+**Wrapper assembles (outside CVM, updatable):**
+- CMS `SignedData` structure: wraps TSTInfo as `encapContentInfo`, places signedAttrs and signature in `SignerInfo`, adds certificates
+- `ContentInfo` envelope with `id-signedData` content type
+- `TimeStampResp` with `PKIStatusInfo`
+
+This split ensures that the security-critical operations (time reading, TSTInfo construction, signing)
+occur inside the attested CVM, while the protocol complexity (ASN.1 parsing, CMS assembly, HTTP handling)
+resides in the updatable wrapper. The wrapper holds no key material and cannot forge signatures.
+
+The CVM and wrapper communicate over vsock using a fixed binary protocol
+documented in [Enclave Interface](09-enclave-interface.md).
+For the MVP, only ECDSA P-384 is produced by the CVM (single `SignerInfo`).
+ML-DSA-65 threshold signing will be added in a future iteration,
+producing a second `SignerInfo` in the CMS structure.
+
 ### Signed Attributes
 
 Both `SignerInfo` entries contain the same set of signed attributes, which are DER-encoded, digested with SHA-384, and then signed. The signed attributes are:
@@ -1022,6 +1046,7 @@ See [Confidential Computing & Time](02-confidential-computing-and-time.md), Sect
 | Failure scenarios, recovery procedures, SLH-DSA fallback | [Failure Modes and Recovery](04-failure-modes-and-recovery.md) |
 | Deployment guide, monitoring, incident response, DKG ceremony ops | [Operations and Deployment](05-operations-and-deployment.md) |
 | STRIDE analysis, attack scenarios, residual risks | [Threat Model](07-threat-model.md) |
+| Enclave interface, binary protocol, CVM/wrapper split | [Enclave Interface](09-enclave-interface.md) |
 
 ---
 
