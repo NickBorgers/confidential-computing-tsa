@@ -21,11 +21,36 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  check-files:
+    name: Check Repository Files
+    runs-on: ubuntu-latest
+    outputs:
+      has_cargo_toml: ${{ steps.check.outputs.has_cargo_toml }}
+      has_dockerfile: ${{ steps.check.outputs.has_dockerfile }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check for key files
+        id: check
+        run: |
+          if [ -f Cargo.toml ]; then
+            echo "has_cargo_toml=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_cargo_toml=false" >> $GITHUB_OUTPUT
+          fi
+          if [ -f Dockerfile ]; then
+            echo "has_dockerfile=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_dockerfile=false" >> $GITHUB_OUTPUT
+          fi
+
   test:
     name: Run Rust Tests
     runs-on: ubuntu-latest
+    needs: check-files
     # Only run if there's actual Rust code to test
-    if: hashFiles('Cargo.toml') != ''
+    if: needs.check-files.outputs.has_cargo_toml == 'true'
 
     steps:
       - name: Checkout code
@@ -53,9 +78,9 @@ jobs:
   build-and-push:
     name: Build and Push Docker Image
     runs-on: ubuntu-latest
-    needs: test
+    needs: [check-files, test]
     # Only run if an application Dockerfile exists
-    if: always() && (needs.test.result == 'success' || needs.test.result == 'skipped') && hashFiles('Dockerfile') != ''
+    if: always() && (needs.test.result == 'success' || needs.test.result == 'skipped') && needs.check-files.outputs.has_dockerfile == 'true'
     permissions:
       contents: read
       packages: write
