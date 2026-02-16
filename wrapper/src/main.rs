@@ -1,8 +1,4 @@
-// Many public items are part of the future API surface (vsock config,
-// env-based config, policy handling) but not yet wired up in the MVP.
-#![allow(dead_code)]
-
-/// TSA Wrapper: RFC 3161 HTTP server and CMS assembly.
+/// TSA Wrapper binary: RFC 3161 HTTP server and CMS assembly.
 ///
 /// This runs OUTSIDE the CVM and is updatable without triggering key rotation.
 /// It handles:
@@ -11,17 +7,15 @@
 /// - Forwarding to CVM via vsock binary protocol
 /// - CMS SignedData assembly from CVM response
 /// - TimeStampResp construction and delivery
-mod cms;
-mod config;
-mod response;
-mod rfc3161;
-mod vsock_client;
-
-use cms::{build_signed_data, CmsConfig, CvmComponents};
-use config::WrapperConfig;
-use response::{build_timestamp_resp_rejection, build_timestamp_resp_success};
-use rfc3161::{build_cvm_request, validate_request, HashAlgorithm, RejectReason, TimeStampReq};
-use vsock_client::{parse_response_payload, parse_response_status, send_request, CvmConfig};
+use tsa_wrapper::cms::{build_signed_data, CmsConfig, CvmComponents};
+use tsa_wrapper::config::WrapperConfig;
+use tsa_wrapper::response::{build_timestamp_resp_rejection, build_timestamp_resp_success};
+use tsa_wrapper::rfc3161::{
+    build_cvm_request, validate_request, HashAlgorithm, RejectReason, TimeStampReq,
+};
+use tsa_wrapper::vsock_client::{
+    parse_response_payload, parse_response_status, send_request, CvmConfig,
+};
 
 use std::io::{Read, Write};
 use std::net::TcpListener;

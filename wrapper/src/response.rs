@@ -179,7 +179,7 @@ mod tests {
         let bits = encode_failure_info(0);
         assert_eq!(bits[0], 0x03); // BIT STRING tag
                                    // bit 0 should be set in the first value byte
-        let unused = bits[2];
+        let _unused = bits[2];
         let value = bits[3];
         assert_eq!(value & 0x80, 0x80); // bit 0 is the MSB of the first byte
     }

@@ -4,6 +4,14 @@ version = "0.1.0"
 edition = "2021"
 description = "CC-TSA wrapper: RFC 3161 HTTP server and CMS assembly (outside CVM, updatable)"
 
+[lib]
+name = "tsa_wrapper"
+path = "src/lib.rs"
+
+[[bin]]
+name = "tsa-wrapper"
+path = "src/main.rs"
+
 [dependencies]
 rasn = "0.22"
 rasn-cms = "0.22"

@@ -4,6 +4,14 @@ version = "0.1.0"
 edition = "2021"
 description = "CC-TSA Confidential VM core: minimal signing oracle for RFC 3161 timestamps"
 
+[lib]
+name = "cvm_core"
+path = "src/lib.rs"
+
+[[bin]]
+name = "cvm-core"
+path = "src/main.rs"
+
 [dependencies]
 p384 = { version = "0.13", features = ["ecdsa"] }
 ecdsa = { version = "0.16", features = ["signing", "verifying"] }

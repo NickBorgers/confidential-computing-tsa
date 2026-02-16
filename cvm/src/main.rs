@@ -1,8 +1,4 @@
-// Many public items in submodules are part of the future API surface
-// (attestation, TSC calibration, threshold signing) but not yet wired up.
-#![allow(dead_code)]
-
-/// CVM Core: Minimal signing oracle for CC-TSA.
+/// CVM Core binary: Minimal signing oracle for CC-TSA.
 ///
 /// This is the security-critical code that runs inside the AMD SEV-SNP
 /// confidential VM. It is measured at boot and its hash is bound to the
@@ -12,20 +8,13 @@
 ///   Booting -> TimeSync -> Ready -> Signing
 ///                                    |
 ///                                (on error) -> Degraded
-mod attestation;
-mod protocol;
-mod signed_attrs;
-mod signing;
-mod time;
-mod tstinfo;
-
-use protocol::{
+use cvm_core::protocol::{
     parse_request, serialize_error_response, serialize_response, ResponseStatus, SignResponse,
 };
-use signed_attrs::build_signed_attrs;
-use signing::SigningContext;
-use time::{current_time_ms, format_generalized_time, NtsState};
-use tstinfo::{build_tstinfo, TstInfoParams};
+use cvm_core::signed_attrs::build_signed_attrs;
+use cvm_core::signing::SigningContext;
+use cvm_core::time::{current_time_ms, format_generalized_time, NtsState};
+use cvm_core::tstinfo::{build_tstinfo, TstInfoParams};
 
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
