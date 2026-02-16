@@ -162,8 +162,8 @@ jobs:
           token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
           ref: ${{ steps.pr-context.outputs.is_pr == 'true' && steps.pr-context.outputs.pr_head_ref || github.ref }}
 
-      - name: Setup devcontainer mounts
-        uses: ./.github/actions/setup-devcontainer-mounts
+      - name: Create mount directories for devcontainer
+        run: mkdir -p ~/.config/gh ~/.claude ~/.azure
 
       - name: Extract comment body
         id: comment
@@ -310,8 +310,8 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.WORKFLOW_PAT }}  # PAT required to push workflow file changes
 
-      - name: Setup devcontainer mounts
-        uses: ./.github/actions/setup-devcontainer-mounts
+      - name: Create mount directories for devcontainer
+        run: mkdir -p ~/.config/gh ~/.claude ~/.azure
 
       - name: Label issue as claude-started
         env:

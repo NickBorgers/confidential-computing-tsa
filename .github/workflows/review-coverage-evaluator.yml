@@ -90,8 +90,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup devcontainer mounts
-        uses: ./.github/actions/setup-devcontainer-mounts
+      - name: Create mount directories for devcontainer
+        run: mkdir -p ~/.config/gh ~/.claude ~/.azure
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
