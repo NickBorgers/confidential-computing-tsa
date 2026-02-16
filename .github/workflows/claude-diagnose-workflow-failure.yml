@@ -136,8 +136,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Create gh config directory for devcontainer mount
-        run: mkdir -p ~/.config/gh
+      - name: Create mount directories for devcontainer
+        run: mkdir -p ~/.config/gh ~/.claude ~/.azure
 
       - name: Collect existing github-actions issues for duplicate detection
         env:

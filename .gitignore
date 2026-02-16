@@ -19,3 +19,11 @@ Thumbs.db
 
 # CI-generated files
 existing-github-actions-issues.json
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfplan
+tfplan
+crash.log
