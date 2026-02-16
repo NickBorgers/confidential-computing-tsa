@@ -2,7 +2,9 @@
 
 > **CC-TSA Design Document 01** | Audience: Architects, Engineers, Security Reviewers
 
-This document describes the system architecture of the Confidential Computing Timestamp Authority (CC-TSA) — a hardware-attested, quantum-safe, threshold-signing timestamp service that produces standard RFC 3161 tokens. It covers design goals, components, trust boundaries, platform selection, the timestamp request lifecycle, deployment topology, and operational thresholds.
+This document describes the system architecture of the Confidential Computing Timestamp Authority (CC-TSA) — a hardware-attested, quantum-safe,
+threshold-signing timestamp service that produces standard RFC 3161 tokens.
+It covers design goals, components, trust boundaries, platform selection, the timestamp request lifecycle, deployment topology, and operational thresholds.
 
 For deeper treatment of specific topics, see the companion documents referenced throughout.
 
@@ -27,15 +29,24 @@ CC-TSA is designed around five core principles that collectively provide a diffe
 
 ### 1.1 Verifiable Trust via Hardware Attestation
 
-Traditional TSAs protect their signing keys and clocks inside certified HSMs (e.g., FIPS 140-2 Level 4 devices such as the IBM 4767), which provide genuine hardware protections: no-export keys, tamper-response mechanisms that destroy key material, and hardware-enforced clock adjustment limits with cryptographic audit logs. These are strong protections, but relying parties must trust the HSM certification process and the organizational procedures surrounding it — they cannot independently verify the HSM's state at the time a timestamp was issued.
+Traditional TSAs protect their signing keys and clocks inside certified HSMs (e.g., FIPS 140-2 Level 4 devices such as the IBM 4767),
+which provide genuine hardware protections: no-export keys, tamper-response mechanisms that destroy key material,
+and hardware-enforced clock adjustment limits with cryptographic audit logs. These are strong protections,
+but relying parties must trust the HSM certification process and the organizational procedures surrounding it —
+they cannot independently verify the HSM's state at the time a timestamp was issued.
 
-CC-TSA takes a different approach with **remotely verifiable cryptographic attestation**: every enclave node produces an AMD SEV-SNP attestation report signed by the AMD Secure Processor. This report binds the node's identity (measurement of firmware, kernel, and application), its runtime state, and its platform configuration to a hardware root of trust. Any party can verify this report against AMD's published VCEK certificates without trusting the cloud provider or the CC-TSA operator.
+CC-TSA takes a different approach with **remotely verifiable cryptographic attestation**: every enclave node produces an AMD SEV-SNP attestation report
+signed by the AMD Secure Processor. This report binds the node's identity (measurement of firmware, kernel, and application),
+its runtime state, and its platform configuration to a hardware root of trust.
+Any party can verify this report against AMD's published VCEK certificates without trusting the cloud provider or the CC-TSA operator.
 
 See [Threat Model](07-threat-model.md) for a full analysis of what attestation does and does not protect against.
 
 ### 1.2 No Single Point of Compromise
 
-The TSA signing key **never exists as a complete value in any single location**. It is generated via Distributed Key Generation (DKG) across 5 enclave nodes, each of which holds one key share. Signing requires a 3-of-5 threshold: at least 3 nodes must participate to produce a valid signature, but no subset of 2 or fewer nodes can sign or reconstruct the key.
+The TSA signing key **never exists as a complete value in any single location**. It is generated via Distributed Key Generation (DKG)
+across 5 enclave nodes, each of which holds one key share. Signing requires a 3-of-5 threshold:
+at least 3 nodes must participate to produce a valid signature, but no subset of 2 or fewer nodes can sign or reconstruct the key.
 
 This means:
 
@@ -52,19 +63,25 @@ Every timestamp token carries **dual signatures**:
 - **ML-DSA-65** (FIPS 204, formerly Dilithium-3): A lattice-based post-quantum signature scheme, produced via threshold signing across the enclave cluster.
 - **ECDSA P-384** (FIPS 186-5): A classical elliptic-curve signature for backward compatibility with existing verifiers.
 
-Both signatures are embedded in the CMS SignedData structure as separate `SignerInfo` entries. Classical verifiers ignore the ML-DSA-65 signature and validate via ECDSA. Quantum-safe verifiers can validate via ML-DSA-65. This hybrid approach provides protection today while maintaining full backward compatibility.
+Both signatures are embedded in the CMS SignedData structure as separate `SignerInfo` entries.
+Classical verifiers ignore the ML-DSA-65 signature and validate via ECDSA. Quantum-safe verifiers can validate via ML-DSA-65.
+This hybrid approach provides protection today while maintaining full backward compatibility.
 
 See [Quantum-Safe Threshold Cryptography](03-quantum-safe-threshold-crypto.md) for algorithm selection rationale and [RFC 3161 Compliance](06-rfc3161-compliance.md) for the dual-signature CMS encoding.
 
 ### 1.4 Full RFC 3161 Compatibility
 
-CC-TSA is a **drop-in replacement** for existing RFC 3161 Timestamp Authorities. The request/response protocol, token format (CMS SignedData containing TSTInfo), hash algorithm support, policy OID handling, and nonce semantics all conform to RFC 3161. Clients using standard libraries (e.g., OpenSSL, Bouncy Castle, Go `crypto/pkcs7`) require no modification.
+CC-TSA is a **drop-in replacement** for existing RFC 3161 Timestamp Authorities. The request/response protocol,
+token format (CMS SignedData containing TSTInfo), hash algorithm support, policy OID handling, and nonce semantics all conform to RFC 3161.
+Clients using standard libraries (e.g., OpenSSL, Bouncy Castle, Go `crypto/pkcs7`) require no modification.
 
 See [RFC 3161 Compliance](06-rfc3161-compliance.md) for a detailed compliance matrix.
 
 ### 1.5 Multi-Cloud Deployment
 
-The recommended deployment distributes enclave nodes across multiple cloud providers so that **no single provider hosts a threshold number of nodes** (3 or more). This ensures that a full compromise of one cloud provider's infrastructure — including hypothetical hypervisor-level attacks — cannot reach the signing threshold.
+The recommended deployment distributes enclave nodes across multiple cloud providers so that **no single provider hosts a threshold number of nodes**
+(3 or more). This ensures that a full compromise of one cloud provider's infrastructure —
+including hypothetical hypervisor-level attacks — cannot reach the signing threshold.
 
 The primary deployment target is AMD SEV-SNP confidential VMs, available on Azure (DCasv5/ECasv5 series) and GCP (C3D series). A third provider hosts the fifth node to complete the distribution.
 
@@ -149,16 +166,20 @@ The load balancer is the entry point for all RFC 3161 timestamp requests.
 
 **Responsibilities:**
 
-- **TLS termination**: Terminates client TLS connections. The connection between the load balancer and enclave nodes uses mTLS with certificates attested to the enclave identity.
-- **Request routing**: Distributes `TimeStampReq` messages to enclave nodes. The routing strategy can be round-robin (any node can serve as coordinator) or sticky (route to a designated coordinator for a period).
-- **Health checking**: Periodically probes each enclave node's health endpoint. Removes unhealthy nodes from the rotation. Health checks verify that the node is attested, time-synchronized, and able to participate in signing.
+- **TLS termination**: Terminates client TLS connections. The connection between the load balancer and enclave nodes uses mTLS
+with certificates attested to the enclave identity.
+- **Request routing**: Distributes `TimeStampReq` messages to enclave nodes. The routing strategy can be round-robin
+(any node can serve as coordinator) or sticky (route to a designated coordinator for a period).
+- **Health checking**: Periodically probes each enclave node's health endpoint. Removes unhealthy nodes from the rotation.
+Health checks verify that the node is attested, time-synchronized, and able to participate in signing.
 - **Rate limiting**: Protects the cluster from request floods.
 
 The load balancer is **outside the trust boundary** — it does not have access to key shares or signing material. A compromised load balancer can deny service but cannot forge timestamps.
 
 ### 2.3 NTS Time Sources (4+)
 
-CC-TSA uses a minimum of 4 NTS-authenticated NTP servers (RFC 8915) as external time references. NTS provides cryptographic authentication of NTP responses, preventing spoofing and man-in-the-middle attacks on time synchronization.
+CC-TSA uses a minimum of 4 NTS-authenticated NTP servers (RFC 8915) as external time references.
+NTS provides cryptographic authentication of NTP responses, preventing spoofing and man-in-the-middle attacks on time synchronization.
 
 **Time sources in the default configuration:**
 
@@ -174,15 +195,17 @@ CC-TSA uses a minimum of 4 NTS-authenticated NTP servers (RFC 8915) as external 
 1. Each enclave node reads its local time from the hardware TSC via SecureTSC.
 2. Periodically (configurable, default every 30 seconds), each node queries all 4 NTS servers.
 3. The TriHaRd protocol (Byzantine fault-tolerant time agreement) selects a valid time from the NTS responses, tolerating up to 1 faulty or malicious source out of 4.
-4. The node compares its SecureTSC time against the TriHaRd-validated NTS time. If drift exceeds the configured tolerance (default: 50 microseconds), the node raises an alert and may halt signing.
+4. The node compares its SecureTSC time against the TriHaRd-validated NTS time. If drift exceeds the configured tolerance (default: 100 milliseconds), the node raises an alert and may halt signing.
 
-This dual-source approach (hardware TSC + authenticated NTP) ensures that even if the hypervisor attempts to manipulate the software clock, the hardware TSC remains trustworthy, and even if the hardware TSC drifts, the NTS sources provide a cross-check.
+This dual-source approach (hardware TSC + authenticated NTP) ensures that even if the hypervisor attempts to manipulate the software clock,
+the hardware TSC remains trustworthy, and even if the hardware TSC drifts, the NTS sources provide a cross-check.
 
 See [Confidential Computing & Time](02-confidential-computing-and-time.md) for the full trusted time architecture.
 
 ### 2.4 Certificate Authority
 
-A Certificate Authority (CA) issues the X.509 certificate that binds the TSA's public signing key to the TSA's identity. This certificate is included in every timestamp token so that verifiers can chain trust from the token back to a trusted root.
+A Certificate Authority (CA) issues the X.509 certificate that binds the TSA's public signing key to the TSA's identity.
+This certificate is included in every timestamp token so that verifiers can chain trust from the token back to a trusted root.
 
 **Certificate issuance flow:**
 
@@ -207,15 +230,15 @@ The monitoring subsystem provides visibility into cluster health, performance, a
 | Dimension | Metrics | Alert Threshold |
 |---|---|---|
 | **Cluster health** | Nodes online, nodes attested, quorum status | < 4 nodes online |
-| **Time drift** | SecureTSC vs. NTS delta per node, inter-node clock skew | > 50 microseconds drift |
+| **Time drift** | SecureTSC vs. NTS delta per node, inter-node clock skew | > 100 milliseconds drift |
 | **Attestation status** | Attestation report validity, measurement changes, firmware versions | Any attestation failure |
-| **Signing performance** | Threshold signing latency (p50, p95, p99), request throughput | p99 > 500ms |
+| **Signing performance** | Threshold signing latency (p50, p95, p99), request throughput | p99 > 5s |
 | **Key share status** | Key share present in memory, DKG ceremony status | Any key share loss |
 | **NTS source health** | NTS server reachability, response validity, stratum changes | < 3 NTS sources reachable |
 
 **Alerting tiers:**
 
-- **Critical**: Quorum lost (< 3 nodes), attestation failure, time drift > tolerance. Pages on-call immediately.
+- **Critical**: Quorum lost (< 3 nodes), attestation failure, time drift > 100ms. Pages on-call immediately.
 - **Warning**: Degraded quorum (3 nodes), single NTS source unreachable, elevated signing latency. Notifies team.
 - **Info**: Node restart, DKG ceremony triggered, NTS source stratum change. Logged for audit.
 
@@ -334,23 +357,34 @@ The selection of AMD SEV-SNP as the primary platform is driven by three factors:
 
 **1. SecureTSC is critical for trusted time.**
 
-A Timestamp Authority's core guarantee is the accuracy of its clock. SecureTSC provides a hardware-protected time source that the hypervisor cannot manipulate. The AMD Secure Processor calibrates the TSC at VM boot and the guest reads it directly via `RDTSC` without hypervisor interception. This is a qualitative improvement over software-only time sources.
+A Timestamp Authority's core guarantee is the accuracy of its clock. SecureTSC provides a hardware-protected time source
+that the hypervisor cannot manipulate. The AMD Secure Processor calibrates the TSC at VM boot and the guest reads it directly
+via `RDTSC` without hypervisor interception. This is a qualitative improvement over software-only time sources.
 
-Intel TDX provides a virtualized TSC that, while protected from direct manipulation, offers weaker isolation guarantees. AWS Nitro Enclaves have no hardware TSC mechanism at all — the enclave must rely on the parent instance for time, which defeats the purpose for a TSA.
+Intel TDX provides a virtualized TSC that, while protected from direct manipulation, offers weaker isolation guarantees.
+AWS Nitro Enclaves have no hardware TSC mechanism at all —
+the enclave must rely on the parent instance for time, which defeats the purpose for a TSA.
 
 See [Confidential Computing & Time](02-confidential-computing-and-time.md) for the full SecureTSC analysis.
 
 **2. Multi-cloud availability is essential for threshold distribution.**
 
-The CC-TSA security model requires distributing nodes so that no single cloud provider hosts a threshold number (3 or more). AMD SEV-SNP is generally available on both Azure and GCP, enabling a 2+2+1 node distribution across three providers. Intel TDX, while promising, is still in preview on most providers and not yet suitable for production multi-cloud deployments. AWS Nitro is inherently single-cloud.
+The CC-TSA security model requires distributing nodes so that no single cloud provider hosts a threshold number (3 or more).
+AMD SEV-SNP is generally available on both Azure and GCP, enabling a 2+2+1 node distribution across three providers.
+Intel TDX, while promising, is still in preview on most providers and not yet suitable for production multi-cloud deployments.
+AWS Nitro is inherently single-cloud.
 
 **3. Mature attestation ecosystem.**
 
-AMD SEV-SNP attestation is well-supported by Azure (Microsoft Azure Attestation service) and GCP (Confidential Computing attestation API). Both providers support attestation verification, which CC-TSA uses for mutual attestation during DKG ceremonies.
+AMD SEV-SNP attestation is well-supported by Azure (Microsoft Azure Attestation service)
+and GCP (Confidential Computing attestation API).
+Both providers support attestation verification, which CC-TSA uses for mutual attestation during DKG ceremonies.
 
 ### 4.3 Intel TDX as an Alternative
 
-Intel TDX is a viable alternative platform and may become preferred for certain deployments as it reaches general availability on multiple clouds. The CC-TSA application logic is designed to be platform-agnostic where possible, with a platform abstraction layer for attestation report generation and time source access. Porting to TDX would require:
+Intel TDX is a viable alternative platform and may become preferred for certain deployments as it reaches general availability on multiple clouds.
+The CC-TSA application logic is designed to be platform-agnostic where possible,
+with a platform abstraction layer for attestation report generation and time source access. Porting to TDX would require:
 
 - Replacing SNP attestation report generation with TD Quote generation.
 - Replacing SecureTSC time reads with TDX-specific TSC access (or relying more heavily on NTS).
@@ -390,11 +424,11 @@ sequenceDiagram
     Coord->>NTS: Cross-validate via TriHaRd protocol
     NTS-->>Coord: NTS-authenticated time responses
     Coord->>Coord: TriHaRd: BFT agreement on valid time
-    Coord->>Coord: Assert |SecureTSC - TriHaRd| < 50μs tolerance
+    Coord->>Coord: Assert |SecureTSC - TriHaRd| < 100ms tolerance
 
     Note over Coord: Phase 4 — TSTInfo Construction
     Coord->>Coord: Generate serial number (monotonic, unique)
-    Coord->>Coord: Construct TSTInfo:<br/>version, policy OID, message imprint,<br/>serial number, genTime (UTC),<br/>accuracy (±1ms), nonce, TSA name
+    Coord->>Coord: Construct TSTInfo:<br/>version, policy OID, message imprint,<br/>serial number, genTime (UTC),<br/>accuracy (±1s), nonce, TSA name
 
     Note over Coord,P3: Phase 5 — Threshold Signing (ML-DSA-65, 3-of-5)
     Coord->>P2: SigningRequest(TSTInfo digest)
@@ -432,7 +466,10 @@ sequenceDiagram
 
 ### 5.2 Phase Descriptions
 
-**Phase 1 — Request Submission.** The client constructs an RFC 3161 `TimeStampReq` containing the message imprint (hash algorithm OID + hash value of the data to be timestamped), an optional nonce for replay protection, and an optional policy OID. The client sends this to the load balancer over HTTPS. The load balancer selects a coordinator node (round-robin or based on affinity) and forwards the request over mTLS.
+**Phase 1 — Request Submission.** The client constructs an RFC 3161 `TimeStampReq` containing the message imprint
+(hash algorithm OID + hash value of the data to be timestamped), an optional nonce for replay protection, and an optional policy OID.
+The client sends this to the load balancer over HTTPS.
+The load balancer selects a coordinator node (round-robin or based on affinity) and forwards the request over mTLS.
 
 **Phase 2 — Request Validation.** The coordinator node parses the `TimeStampReq` and validates:
 - The hash algorithm OID is in the set of accepted algorithms (SHA-256, SHA-384, SHA-512; SHA-1 is rejected).
@@ -442,7 +479,10 @@ sequenceDiagram
 
 If validation fails, the coordinator returns a `TimeStampResp` with an appropriate error status (e.g., `badAlg`, `badRequest`).
 
-**Phase 3 — Trusted Time Acquisition.** The coordinator obtains a trusted timestamp by reading the hardware TSC via SecureTSC and cross-validating against NTS-authenticated NTP sources using the TriHaRd Byzantine fault-tolerant protocol. If the SecureTSC and TriHaRd times diverge beyond the configured tolerance (default 50 microseconds), the node halts signing and raises an alert. The validated time is used as `genTime` in the TSTInfo.
+**Phase 3 — Trusted Time Acquisition.** The coordinator obtains a trusted timestamp by reading the hardware TSC via SecureTSC
+and cross-validating against NTS-authenticated NTP sources using the TriHaRd Byzantine fault-tolerant protocol.
+If the SecureTSC and TriHaRd times diverge beyond the configured tolerance (default 100 milliseconds),
+the node halts signing and raises an alert. The validated time is used as `genTime` in the TSTInfo.
 
 See [Confidential Computing & Time](02-confidential-computing-and-time.md) for the TriHaRd protocol specification.
 
@@ -455,7 +495,7 @@ See [Confidential Computing & Time](02-confidential-computing-and-time.md) for t
 | `messageImprint` | Copied from the request |
 | `serialNumber` | Monotonically increasing, unique across the cluster |
 | `genTime` | UTC time from Phase 3 (GeneralizedTime, sub-second precision) |
-| `accuracy` | ±1 millisecond (reflects SecureTSC + NTS validation accuracy) |
+| `accuracy` | ±1 second (conservative; reflects that timestamping is not latency-sensitive work) |
 | `ordering` | FALSE (serial numbers provide ordering within the same genTime) |
 | `nonce` | Copied from the request (if present) |
 | `tsa` | TSA GeneralName (from TSA certificate) |
@@ -463,13 +503,18 @@ See [Confidential Computing & Time](02-confidential-computing-and-time.md) for t
 **Phase 5 — Threshold Signing.** The coordinator selects 2 additional participant nodes (for a total of 3, the threshold) and initiates the two-round threshold signing protocol:
 
 - **Round 1 (Commitment)**: Each of the 3 participants generates a partial commitment from their key share and the TSTInfo digest. All commitments are sent to the coordinator.
-- **Round 2 (Partial Signature)**: The coordinator distributes all 3 commitments to each participant. Each participant generates a partial signature using their key share, the TSTInfo digest, and the full commitment set. Partial signatures are sent to the coordinator.
+- **Round 2 (Partial Signature)**: The coordinator distributes all 3 commitments to each participant.
+Each participant generates a partial signature using their key share, the TSTInfo digest, and the full commitment set.
+Partial signatures are sent to the coordinator.
 
 This two-round structure prevents rogue-key attacks and ensures that no participant can bias the final signature.
 
 See [Quantum-Safe Threshold Cryptography](03-quantum-safe-threshold-crypto.md) for the full protocol specification.
 
-**Phase 6 — Signature Combination.** The coordinator combines the 3 partial signatures into a single ML-DSA-65 signature and verifies it against the group public key. If verification fails (indicating a faulty or malicious participant), the coordinator retries with a different participant set. The coordinator also produces an ECDSA P-384 signature (either via a parallel threshold signing round or using a coordinator-held ECDSA key, depending on deployment configuration).
+**Phase 6 — Signature Combination.** The coordinator combines the 3 partial signatures into a single ML-DSA-65 signature
+and verifies it against the group public key. If verification fails (indicating a faulty or malicious participant),
+the coordinator retries with a different participant set. The coordinator also produces an ECDSA P-384 signature
+(either via a parallel threshold signing round or using a coordinator-held ECDSA key, depending on deployment configuration).
 
 **Phase 7 — Response Assembly.** The coordinator constructs the CMS `SignedData` structure:
 - `encapContentInfo` contains the DER-encoded `TSTInfo`.
@@ -480,25 +525,33 @@ This is wrapped in a `TimeStampResp` with status `granted` (0).
 
 See [RFC 3161 Compliance](06-rfc3161-compliance.md) for the exact CMS encoding of dual signatures.
 
-**Phase 8 — Response Delivery.** The coordinator sends the `TimeStampResp` back to the load balancer, which forwards it to the client. The client can verify the token using the TSA's public certificate and standard CMS verification libraries.
+**Phase 8 — Response Delivery.** The coordinator sends the `TimeStampResp` back to the load balancer, which forwards it to the client.
+The client can verify the token using the TSA's public certificate and standard CMS verification libraries.
 
 ### 5.3 Latency Budget
+
+Timestamping is not latency-sensitive work. The system is designed for a **< 1 second end-to-end** round-trip budget,
+which comfortably accommodates cross-provider network round-trips and threshold signing coordination
+without requiring latency optimization.
 
 | Phase | Expected Latency | Notes |
 |---|---|---|
 | Request parsing + validation | < 1 ms | Local computation |
-| Trusted time acquisition | < 1 ms (SecureTSC read) | NTS cross-validation is periodic, not per-request |
+| Trusted time acquisition | < 1 ms | NTS cross-validation is periodic, not per-request |
 | TSTInfo construction | < 1 ms | Local computation |
-| Threshold signing (2 rounds) | 10–50 ms | Dominated by network round-trips between enclave nodes |
+| Threshold signing (2 rounds) | Tens to hundreds of ms | Dominated by network round-trips between enclave nodes; varies by deployment topology |
 | Signature combination + verification | < 5 ms | Local computation |
 | Response assembly | < 1 ms | Local computation |
-| **Total (end-to-end)** | **15–60 ms** | Excludes network latency to/from client |
+| **Total (end-to-end)** | **< 1 second** | Excludes network latency to/from client |
+
+Throughput comes from pipelining concurrent signing sessions, not from optimizing individual request latency. See [Throughput & Scaling](08-throughput-and-scaling.md) for capacity analysis.
 
 ---
 
 ## 6. Deployment Topology
 
-CC-TSA supports two deployment topologies: single-provider and multi-provider. The multi-provider topology is **recommended** because it ensures that no single cloud provider compromise can reach the signing threshold.
+CC-TSA supports two deployment topologies: single-provider and multi-provider.
+The multi-provider topology is **recommended** because it ensures that no single cloud provider compromise can reach the signing threshold.
 
 ### 6.1 Single-Provider (Azure)
 
@@ -584,11 +637,15 @@ graph TB
 **Cross-provider networking:**
 
 The enclave nodes communicate over a cross-provider mesh network for:
-- Threshold signing rounds (latency-sensitive, typically 10–50 ms round-trip).
+
+- Threshold signing rounds.
 - Periodic time synchronization cross-checks.
 - Health checks and quorum status broadcasts.
 
-The mesh uses mTLS with certificates attested to each node's enclave identity. An optional WireGuard tunnel provides an additional encryption layer. Cross-provider latency (e.g., Azure East US to GCP us-central1) is typically 10–30 ms, which is acceptable for the threshold signing protocol.
+The mesh uses mTLS with certificates attested to each node's enclave identity.
+An optional WireGuard tunnel provides an additional encryption layer.
+Cross-provider latency (e.g., Azure East US to GCP us-central1) is typically 10–30 ms,
+which is negligible within the 1-second round-trip budget.
 
 ### 6.3 Topology Selection Guidance
 
@@ -599,7 +656,7 @@ The mesh uses mTLS with certificates attested to each node's enclave identity. A
 | Protection against single-region failure | Yes (cross-region) | Yes (cross-provider) |
 | Protection against single-provider compromise | **No** | **Yes** |
 | Operational complexity | Lower | Higher (multi-cloud networking, cross-provider DKG coordination) |
-| Latency (threshold signing) | Lower (intra-provider) | Higher (cross-provider, +10–30 ms) |
+| Latency (threshold signing) | Lower (intra-provider) | Higher (cross-provider); negligible within 1-second budget |
 
 For production deployments handling high-value timestamps, the multi-provider topology is recommended.
 
@@ -624,11 +681,18 @@ The CC-TSA cluster operates with a **3-of-5 threshold**: at least 3 enclave node
 
 - **Healthy (5 nodes):** All nodes online and attested. Full fault tolerance. This is the normal operating state.
 
-- **Degraded (4 nodes):** One node is offline (planned maintenance, hardware failure, attestation failure). Signing continues with any 3 of the remaining 4. The offline node should be restored promptly. An alert is raised but no immediate action is required.
+- **Degraded (4 nodes):** One node is offline (planned maintenance, hardware failure, attestation failure).
+Signing continues with any 3 of the remaining 4. The offline node should be restored promptly.
+An alert is raised but no immediate action is required.
 
-- **Critical (3 nodes):** Two nodes are offline. Signing continues but there is **zero fault tolerance margin** — if any one of the remaining 3 nodes fails, signing halts. This state requires **immediate action** to restore at least one offline node. An on-call page is triggered.
+- **Critical (3 nodes):** Two nodes are offline. Signing continues but there is **zero fault tolerance margin** —
+if any one of the remaining 3 nodes fails, signing halts.
+This state requires **immediate action** to restore at least one offline node. An on-call page is triggered.
 
-- **Unavailable (< 3 nodes):** Signing is halted. The cluster cannot produce valid threshold signatures. The load balancer returns HTTP 503 to all timestamp requests. This is a **P1 incident** requiring immediate response. Since key shares exist only in enclave memory, recovery requires a new DKG ceremony and new certificate issuance once sufficient nodes are online.
+- **Unavailable (< 3 nodes):** Signing is halted. The cluster cannot produce valid threshold signatures.
+The load balancer returns HTTP 503 to all timestamp requests. This is a **P1 incident** requiring immediate response.
+Since key shares exist only in enclave memory, recovery requires a new DKG ceremony and new certificate issuance
+once sufficient nodes are online.
 
 See [Failure Modes and Recovery](04-failure-modes-and-recovery.md) for detailed recovery procedures for each failure scenario.
 
@@ -638,19 +702,26 @@ The threshold parameters (t=3, n=5) balance security and availability:
 
 - **Security**: An attacker must compromise 3 nodes to forge a signature. In the multi-provider topology, this requires compromising nodes across at least 2 cloud providers.
 - **Availability**: The system tolerates 2 simultaneous node failures while maintaining signing capability. This allows for AZ failures and individual node issues without downtime.
-- **Efficiency**: The threshold signing protocol requires only 3 nodes to participate per signature, keeping latency low even when all 5 are online (the coordinator selects the 2 fastest-responding participants).
+- **Efficiency**: The threshold signing protocol requires only 3 nodes to participate per signature. The coordinator selects 2 participants from the available pool.
 
-A 2-of-5 threshold would improve availability (tolerates 3 failures) but weakens security (only 2 nodes needed to forge). A 4-of-5 threshold would improve security but makes the system fragile (any single node failure blocks signing). The 3-of-5 configuration is the standard recommendation for Byzantine fault-tolerant systems with 5 nodes.
+A 2-of-5 threshold would improve availability (tolerates 3 failures) but weakens security (only 2 nodes needed to forge).
+A 4-of-5 threshold would improve security but makes the system fragile (any single node failure blocks signing).
+The 3-of-5 configuration is the standard recommendation for Byzantine fault-tolerant systems with 5 nodes.
 
 ---
 
 ## 8. Software Immutability and Measurement Identity
 
-CC-TSA software is **immutable for the lifetime of a signing key**. Once a DKG ceremony produces key shares and a corresponding TSA certificate is issued, the software running in the enclave nodes does not change. This design binds the software identity to the cryptographic identity of the TSA.
+CC-TSA software is **immutable for the lifetime of a signing key**. Once a DKG ceremony produces key shares
+and a corresponding TSA certificate is issued, the software running in the enclave nodes does not change.
+This design binds the software identity to the cryptographic identity of the TSA.
 
 ### Attestation Measurement as Cryptographic Identity
 
-When the DKG ceremony completes, the attestation measurement (the hash of the firmware, kernel, and application running in each enclave) is recorded and published alongside the TSA certificate. This measurement serves as a permanent record of exactly what software produced the key shares and will sign all timestamps under this certificate.
+When the DKG ceremony completes, the attestation measurement (the hash of the firmware, kernel, and application running in each enclave)
+is recorded and published alongside the TSA certificate.
+This measurement serves as a permanent record of exactly what software produced the key shares
+and will sign all timestamps under this certificate.
 
 Relying parties can:
 

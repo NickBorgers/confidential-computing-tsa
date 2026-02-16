@@ -1,8 +1,11 @@
 # Threat Model & Security Analysis
 
-This document defines the adversary model, trust assumptions, and security analysis for the Confidential Computing Timestamp Authority (CC-TSA). It applies STRIDE analysis to all components, evaluates the quantum threat timeline, and documents residual risks with acceptance rationale.
+This document defines the adversary model, trust assumptions, and security analysis for the Confidential Computing Timestamp Authority (CC-TSA).
+It applies STRIDE analysis to all components, evaluates the quantum threat timeline, and documents residual risks with acceptance rationale.
 
-For system architecture and component descriptions, see [Architecture Overview](01-architecture-overview.md). For cryptographic details, see [Quantum-Safe Threshold Crypto](03-quantum-safe-threshold-crypto.md). For failure recovery, see [Failure Modes & Recovery](04-failure-modes-and-recovery.md).
+For system architecture and component descriptions, see [Architecture Overview](01-architecture-overview.md).
+For cryptographic details, see [Quantum-Safe Threshold Crypto](03-quantum-safe-threshold-crypto.md).
+For failure recovery, see [Failure Modes & Recovery](04-failure-modes-and-recovery.md).
 
 ---
 
@@ -224,7 +227,9 @@ CC-TSA's hybrid approach ensures tokens issued today are protected regardless of
 
 ### ML-DSA Security Margin
 
-ML-DSA-65 (NIST Level 3) provides approximately 128-bit security against quantum attacks. The best known quantum algorithms for the Module-LWE problem do not provide a meaningful speedup over classical algorithms. For an adversary to break ML-DSA-65:
+ML-DSA-65 (NIST Level 3) provides approximately 128-bit security against quantum attacks.
+The best known quantum algorithms for the Module-LWE problem do not provide a meaningful speedup over classical algorithms.
+For an adversary to break ML-DSA-65:
 
 - They would need a fundamental algorithmic breakthrough, not just a bigger quantum computer
 - The NIST standardization process included extensive cryptanalysis from the global research community
@@ -325,11 +330,17 @@ If lattice-based cryptography is broken:
 2. TriHaRd cross-validation confirms time consistency across all 5 nodes
 3. Monotonic clock enforcement in the TSA application prevents any time reversal
 4. The operator cannot access enclave memory to modify the time validation logic
-5. Any attempt to deploy a modified binary changes the attestation measurement — peer nodes reject the modified node's attestation, and a new DKG with the modified software would produce a different key requiring a new certificate (visible to all relying parties)
+5. Any attempt to deploy a modified binary changes the attestation measurement — peer nodes reject the modified node's attestation,
+and a new DKG with the modified software would produce a different key requiring a new certificate (visible to all relying parties)
 
 **Result**: Attack fails. The operator cannot influence the genTime value in any way.
 
-**Note on traditional HSM-based TSAs**: FIPS 140-2 Level 4 HSMs (such as the IBM 4767 used by DigiStamp) also provide hardware protections against clock manipulation — the HSM enforces limits on clock adjustments (e.g., no more than 120 seconds in any 24-hour period) and cryptographically logs every adjustment. These protections are genuine hardware controls, not merely organizational policies. CC-TSA's advantage in this scenario is the combination of distributed trust (no single device to target), remotely verifiable attestation (any party can verify the enclave state), and cross-node time validation (TriHaRd consensus across 5 independent nodes).
+**Note on traditional HSM-based TSAs**: FIPS 140-2 Level 4 HSMs (such as the IBM 4767 used by DigiStamp) also provide hardware protections
+against clock manipulation — the HSM enforces limits on clock adjustments (e.g., no more than 120 seconds in any 24-hour period)
+and cryptographically logs every adjustment. These protections are genuine hardware controls, not merely organizational policies.
+CC-TSA's advantage in this scenario is the combination of distributed trust (no single device to target),
+remotely verifiable attestation (any party can verify the enclave state),
+and cross-node time validation (TriHaRd consensus across 5 independent nodes).
 
 ### Scenario 4: Quantum Computer Attacks Old Timestamps
 
@@ -342,7 +353,8 @@ If lattice-based cryptography is broken:
 4. The adversary cannot forge the ML-DSA-65 signature — no known quantum algorithm provides meaningful speedup for lattice problems
 5. A PQC-aware verifier checks both signatures and detects the mismatch (valid ML-DSA, forged ECDSA = tampering detected)
 
-**Result**: Attack fails for PQC-aware verifiers. Classical-only verifiers that only check ECDSA are vulnerable — this is why the transition to PQC verification must complete before quantum computers arrive.
+**Result**: Attack fails for PQC-aware verifiers. Classical-only verifiers that only check ECDSA are vulnerable —
+this is why the transition to PQC verification must complete before quantum computers arrive.
 
 ### Scenario 5: Compromised Node Attempts Solo Signing
 
@@ -378,7 +390,7 @@ If lattice-based cryptography is broken:
 |---|---|---|
 | **Key confidentiality** | No single entity can reconstruct the signing key | Fewer than 3 of 5 enclaves compromised |
 | **Timestamp integrity** | Timestamps cannot be forged or backdated | Fewer than 3 of 5 enclaves compromised AND AMD-SP is trustworthy |
-| **Time accuracy** | genTime is within 50ms of UTC | ≥3 of 4 NTS sources are honest AND SecureTSC is functioning |
+| **Time accuracy** | genTime is within 1 second of UTC | ≥3 of 4 NTS sources are honest AND SecureTSC is functioning |
 | **Quantum safety** | Signatures remain secure against quantum computers | ML-DSA-65 (lattice) is secure OR SLH-DSA-128f (hash-based) is activated |
 | **Availability** | Signing service is operational | ≥3 of 5 nodes are online and attested |
 | **Non-repudiation** | TSA cannot deny issuing a timestamp | CMS SignedData with TSA certificate; audit log with attestation binding |
