@@ -28,4 +28,11 @@ jobs:
 
       - name: Verify deployment
         run: |
-          az group show --name demo-rg --query "properties.provisioningState" -o tsv
+          state=$(az group show --name demo-rg --query "properties.provisioningState" -o tsv)
+          echo "Provisioning state: $state"
+          [ "$state" = "Succeeded" ] || exit 1
+
+      - name: Teardown resources
+        if: always()
+        run: |
+          az group delete --name demo-rg --yes --no-wait
