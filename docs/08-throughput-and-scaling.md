@@ -8,6 +8,10 @@ and presents a scaling strategy with cost estimates for reaching higher volumes.
 For the system architecture underpinning this analysis, see [Architecture Overview](01-architecture-overview.md).
 For the threshold signing protocol that determines per-request latency, see [Quantum-Safe Threshold Cryptography](03-quantum-safe-threshold-crypto.md).
 
+> **Implementation status**: This analysis is based on projected performance of the full 5-node
+> threshold signing cluster. The PoC runs a single-signer node; throughput benchmarking against
+> these projections has not yet been performed.
+
 ---
 
 ## Table of Contents

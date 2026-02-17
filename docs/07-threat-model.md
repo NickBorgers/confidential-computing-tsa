@@ -7,6 +7,10 @@ For system architecture and component descriptions, see [Architecture Overview](
 For cryptographic details, see [Quantum-Safe Threshold Crypto](03-quantum-safe-threshold-crypto.md).
 For failure recovery, see [Failure Modes & Recovery](04-failure-modes-and-recovery.md).
 
+> **Implementation status**: The threat model covers the full production system. The PoC validates
+> the CVM/wrapper trust boundary and AMD SEV-SNP attestation. Mitigations that depend on threshold
+> signing, multi-cloud distribution, or NTS time validation are design targets not yet active.
+
 ---
 
 ## 1. Adversary Model

@@ -10,6 +10,11 @@ For the overall system architecture, see [Architecture Overview](01-architecture
 For failure scenarios and recovery procedures, see [Failure Modes and Recovery](04-failure-modes-and-recovery.md).
 For the threshold cryptography underpinning key management, see [Quantum-Safe Threshold Cryptography](03-quantum-safe-threshold-crypto.md).
 
+> **Implementation status**: The PoC deployment uses Terraform IaC (`infra/`) to provision a single
+> Azure SEV-SNP confidential VM, with SCP-based binary deployment and CI validation
+> (see `.github/workflows/azure-deploy.yml`). The multi-node cluster operations, DKG ceremony
+> procedures, and production runbooks described here are design targets for future implementation.
+
 ---
 
 ## Table of Contents

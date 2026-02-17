@@ -8,6 +8,11 @@ It covers design goals, components, trust boundaries, platform selection, the ti
 
 For deeper treatment of specific topics, see the companion documents referenced throughout.
 
+> **Implementation status**: The two-layer architecture (Section 2.6) is implemented as a working PoC —
+> the CVM core and wrapper are deployed to an Azure SEV-SNP confidential VM with end-to-end RFC 3161
+> validation in CI. The current implementation uses single-signer ECDSA P-384; the 5-node cluster,
+> threshold signing, and multi-cloud deployment described in this document are design targets not yet built.
+
 ---
 
 ## Table of Contents

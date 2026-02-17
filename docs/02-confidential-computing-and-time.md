@@ -9,6 +9,12 @@ For the overall system architecture and component interactions, see [Architectur
 For how the signing key is generated and used within these enclaves,
 see [Quantum-Safe Threshold Cryptography](03-quantum-safe-threshold-crypto.md).
 
+> **Implementation status**: The PoC runs on an Azure AMD SEV-SNP confidential VM with hardware
+> attestation verified in CI (vTPM, memory encryption, VCEK certificate retrieval). The CVM core
+> includes SecureTSC reading and monotonic enforcement stubs. NTS authentication, TriHaRd cross-node
+> time validation, and the full four-layer time trust chain described here are design targets
+> not yet implemented.
+
 ---
 
 ## 1. AMD SEV-SNP Deep Dive
