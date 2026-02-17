@@ -1,10 +1,10 @@
 name: Claude Diagnose Workflow Failure
 
 # Triggers when any workflow run completes with failure
-# Analyzes if it's a GitHub Actions configuration problem vs a test/code failure
+# Analyzes if it's a GitHub Actions platform problem vs a test/code failure
 # or transient infrastructure issue (external service availability problems)
-# Creates an issue only for Actions configuration problems
-# (not test failures or transient infrastructure issues)
+# Creates an issue only for Actions platform problems
+# (not test/build/lint command failures or transient infrastructure issues)
 
 # SECURITY NOTE: This workflow has lower prompt injection risk because:
 # - It only triggers on workflow_run events (not user-controlled events)
@@ -202,10 +202,32 @@ jobs:
             1. Fetch the workflow run logs using: gh run view ${RUN_ID} --log-failed
             2. Read the workflow YAML file: .github/workflows/ (find the matching file for '${WORKFLOW_NAME}')
             3. Analyze the failure to classify it as one of:
-               a) TEST_FAILURE: Unit tests, integration tests, code compilation, or markdownlint failures
+               a) TEST_FAILURE: Failures in build, test, or lint commands run by the workflow
                b) CONFIG_FAILURE: Issues in configuration files (YAML validation, etc.)
                c) INFRASTRUCTURE_FAILURE: Transient external service availability issues
-               d) ACTIONS_FAILURE: Problems with the GitHub Actions workflow definition itself
+               d) ACTIONS_FAILURE: Problems with GitHub Actions platform features (not build/test commands)
+
+            CRITICAL CLASSIFICATION RULE:
+            If a workflow step runs a build, test, or lint command (cargo, npm, docker build,
+            markdownlint, etc.) and that command fails for ANY reason - including wrong arguments,
+            missing files, incompatible project structure, or no matching targets - that is a
+            TEST_FAILURE, NOT an ACTIONS_FAILURE. The workflow itself ran correctly; it is the
+            build/test/lint command that failed. ACTIONS_FAILURE is ONLY for problems with GitHub
+            Actions platform features like action references, permissions, triggers, or runner
+            environments.
+
+            TEST_FAILURE examples (do NOT create an issue):
+            - Rust test failures (cargo test returning non-zero exit code)
+            - 'no test target matches pattern' errors from cargo test
+            - cargo test/build/clippy/fmt failing due to wrong arguments or project structure
+            - Code compilation errors (cargo build failures)
+            - Style/lint check failures (cargo clippy, cargo fmt, markdownlint)
+            - Coverage below threshold
+            - Application Dockerfile build failures (docker build command failing)
+            - GitHub Pages build failures (Jekyll/Ruby errors)
+            - Review coverage evaluation failures (post-merge analysis errors)
+            - Any failure where the root cause is in build/test command arguments or the code
+              being tested, NOT in GitHub Actions platform features
 
             INFRASTRUCTURE_FAILURE examples (do NOT create an issue for these):
             - GitHub Cache Service errors (502, 503, timeouts, EOF errors)
@@ -219,24 +241,14 @@ jobs:
             - Errors like 'failed to solve: Unavailable: error reading from server: EOF'
 
             ACTIONS_FAILURE examples (CREATE AN ISSUE for these):
-            - Workflow YAML syntax errors
+            - Workflow YAML syntax errors (the YAML itself is invalid)
             - Missing or invalid action references (e.g., uses: unknown-action@v1)
             - Invalid workflow triggers or event configurations
-            - Missing required secrets or environment variables (not test code)
+            - Missing required secrets or environment variables (workflow-level, not test code)
             - Permission issues with GitHub tokens/actions
-            - Docker build failures in workflow steps (not Dockerfile issues)
-            - Job dependency issues
+            - Job dependency issues (needs references to non-existent jobs)
             - Concurrency/matrix configuration problems
-            - Runner environment issues
-
-            NOT ACTIONS_FAILURE (do NOT create an issue):
-            - Rust test failures (cargo test)
-            - Code compilation errors (cargo build failures)
-            - Style/lint check failures (cargo clippy, cargo fmt, markdownlint)
-            - Coverage below threshold
-            - Application Dockerfile build failures
-            - GitHub Pages build failures (Jekyll/Ruby errors)
-            - Review coverage evaluation failures (post-merge analysis errors)
+            - Runner environment issues (requested runner not available)
 
             DECISION LOGIC:
             - If the failure is ACTIONS_FAILURE: Check for duplicates, then create or comment
