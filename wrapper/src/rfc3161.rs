@@ -1,7 +1,7 @@
-/// RFC 3161 TimeStampReq parser and request validation.
-///
-/// Parses DER-encoded TimeStampReq messages, validates the hash algorithm
-/// and policy OID, and converts to the CVM binary protocol format.
+//! RFC 3161 TimeStampReq parser and request validation.
+//!
+//! Parses DER-encoded TimeStampReq messages, validates the hash algorithm
+//! and policy OID, and converts to the CVM binary protocol format.
 
 /// Supported hash algorithm OIDs and their properties.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

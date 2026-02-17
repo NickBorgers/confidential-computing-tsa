@@ -3,7 +3,6 @@
 /// Generates attestation reports via the /dev/sev-guest device.
 /// The report binds the VM's measurement (firmware + kernel + application hash)
 /// to a 64-byte user-provided report_data field, signed by the AMD Secure Processor.
-
 use std::io;
 
 /// Size of the attestation report data field.
@@ -27,7 +26,9 @@ pub const ATTESTATION_REQUEST_TYPE: u8 = 0x02;
 /// # Errors
 /// Returns an error if /dev/sev-guest is not available (not running in SEV-SNP)
 /// or if the ioctl fails.
-pub fn get_attestation_report(report_data: &[u8; REPORT_DATA_SIZE]) -> Result<Vec<u8>, AttestationError> {
+pub fn get_attestation_report(
+    report_data: &[u8; REPORT_DATA_SIZE],
+) -> Result<Vec<u8>, AttestationError> {
     // In production, this uses the /dev/sev-guest ioctl:
     //   fd = open("/dev/sev-guest", O_RDWR)
     //   ioctl(fd, SNP_GET_REPORT, &msg_report_req)
@@ -42,7 +43,9 @@ pub fn get_attestation_report(report_data: &[u8; REPORT_DATA_SIZE]) -> Result<Ve
 }
 
 #[cfg(target_os = "linux")]
-fn get_attestation_report_impl(report_data: &[u8; REPORT_DATA_SIZE]) -> Result<Vec<u8>, AttestationError> {
+fn get_attestation_report_impl(
+    report_data: &[u8; REPORT_DATA_SIZE],
+) -> Result<Vec<u8>, AttestationError> {
     use std::fs::OpenOptions;
     use std::os::unix::io::AsRawFd;
 
@@ -69,7 +72,9 @@ fn get_attestation_report_impl(report_data: &[u8; REPORT_DATA_SIZE]) -> Result<V
 }
 
 #[cfg(not(target_os = "linux"))]
-fn get_attestation_report_impl(_report_data: &[u8; REPORT_DATA_SIZE]) -> Result<Vec<u8>, AttestationError> {
+fn get_attestation_report_impl(
+    _report_data: &[u8; REPORT_DATA_SIZE],
+) -> Result<Vec<u8>, AttestationError> {
     // SEV-SNP attestation is only available on Linux.
     // Return a stub report for development/testing.
     Err(AttestationError::NotAvailable)
@@ -95,7 +100,9 @@ pub enum AttestationError {
 impl core::fmt::Display for AttestationError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::NotAvailable => write!(f, "SEV-SNP attestation not available (not running in CVM)"),
+            Self::NotAvailable => {
+                write!(f, "SEV-SNP attestation not available (not running in CVM)")
+            }
             Self::DeviceError(e) => write!(f, "SEV-SNP device error: {}", e),
         }
     }

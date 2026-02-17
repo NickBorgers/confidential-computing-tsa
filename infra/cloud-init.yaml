@@ -4,5 +4,6 @@ packages:
   - tpm2-tools
   - jq
   - curl
+  - xxd
 runcmd:
   - touch /tmp/cloud-init-complete

@@ -1,7 +1,7 @@
-/// TimeStampResp construction.
-///
-/// Assembles the final RFC 3161 TimeStampResp from the CMS SignedData
-/// (containing TSTInfo + signature) or from an error status.
+//! TimeStampResp construction.
+//!
+//! Assembles the final RFC 3161 TimeStampResp from the CMS SignedData
+//! (containing TSTInfo + signature) or from an error status.
 
 /// PKIStatus values per RFC 3161.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,7 +103,7 @@ fn encode_failure_info(bit: u32) -> Vec<u8> {
     let byte_index = (bit / 8) as usize;
     let bit_in_byte = 7 - (bit % 8);
     let total_bytes = byte_index + 1;
-    let unused_bits = (7 - (bit % 8)) as u8;
+    let _unused_bits = (7 - (bit % 8)) as u8;
     // Actually: unused_bits counts unused bits in the LAST byte
     let unused_in_last = 7 - (bit % 8);
 
@@ -162,9 +162,9 @@ mod tests {
     fn rejection_response_has_status_2() {
         let resp = build_timestamp_resp_rejection(0, None);
         assert_eq!(resp[0], 0x30); // outer SEQUENCE
-        // Find the INTEGER value for status
-        // outer SEQUENCE -> PKIStatusInfo SEQUENCE -> INTEGER 2
-        // The status INTEGER should be 2 (rejection)
+                                   // Find the INTEGER value for status
+                                   // outer SEQUENCE -> PKIStatusInfo SEQUENCE -> INTEGER 2
+                                   // The status INTEGER should be 2 (rejection)
     }
 
     #[test]
@@ -178,8 +178,8 @@ mod tests {
     fn failure_info_bad_alg() {
         let bits = encode_failure_info(0);
         assert_eq!(bits[0], 0x03); // BIT STRING tag
-        // bit 0 should be set in the first value byte
-        let unused = bits[2];
+                                   // bit 0 should be set in the first value byte
+        let _unused = bits[2];
         let value = bits[3];
         assert_eq!(value & 0x80, 0x80); // bit 0 is the MSB of the first byte
     }
@@ -188,7 +188,7 @@ mod tests {
     fn failure_info_unaccepted_policy() {
         let bits = encode_failure_info(16);
         assert_eq!(bits[0], 0x03); // BIT STRING tag
-        // bit 16 is in byte 2 (0-indexed), bit position 7 within that byte
+                                   // bit 16 is in byte 2 (0-indexed), bit position 7 within that byte
         assert!(bits.len() >= 5); // tag + length + unused + 3 value bytes
     }
 }

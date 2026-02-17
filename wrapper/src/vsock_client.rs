@@ -2,8 +2,7 @@
 ///
 /// Connects to the CVM over vsock (or TCP for development),
 /// sends binary signing requests, and receives responses.
-
-use std::io::{self, Read, Write};
+use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::time::Duration;
 
@@ -36,22 +35,28 @@ pub fn send_request(config: &CvmConfig, request: &[u8]) -> Result<Vec<u8>, CvmEr
     let mut stream = TcpStream::connect(format!("127.0.0.1:{}", config.port))
         .map_err(|e| CvmError::ConnectionFailed(e.to_string()))?;
 
-    stream.set_read_timeout(Some(config.timeout))
+    stream
+        .set_read_timeout(Some(config.timeout))
         .map_err(|e| CvmError::ConnectionFailed(e.to_string()))?;
-    stream.set_write_timeout(Some(config.timeout))
+    stream
+        .set_write_timeout(Some(config.timeout))
         .map_err(|e| CvmError::ConnectionFailed(e.to_string()))?;
 
     // Send request
-    stream.write_all(request)
+    stream
+        .write_all(request)
         .map_err(|e| CvmError::SendFailed(e.to_string()))?;
 
     // Shutdown write half to signal end of request
-    stream.shutdown(std::net::Shutdown::Write)
+    stream
+        .shutdown(std::net::Shutdown::Write)
         .map_err(|e| CvmError::SendFailed(e.to_string()))?;
 
     // Read response (max 16KB — generous for TSTInfo + signedAttrs + signature)
     let mut response = Vec::with_capacity(4096);
-    stream.take(16384).read_to_end(&mut response)
+    stream
+        .take(16384)
+        .read_to_end(&mut response)
         .map_err(|e| CvmError::ReceiveFailed(e.to_string()))?;
 
     if response.len() < 2 {
@@ -67,9 +72,10 @@ pub fn parse_response_status(response: &[u8]) -> Result<u8, CvmError> {
         return Err(CvmError::InvalidResponse("response too short".into()));
     }
     if response[0] != 0x01 {
-        return Err(CvmError::InvalidResponse(
-            format!("unexpected protocol version: {:#04x}", response[0])
-        ));
+        return Err(CvmError::InvalidResponse(format!(
+            "unexpected protocol version: {:#04x}",
+            response[0]
+        )));
     }
     Ok(response[1])
 }
@@ -77,14 +83,19 @@ pub fn parse_response_status(response: &[u8]) -> Result<u8, CvmError> {
 /// Extract the TSTInfo, signedAttrs, and signature from a successful CVM response.
 pub fn parse_response_payload(response: &[u8]) -> Result<CvmPayload, CvmError> {
     if response.len() < 14 {
-        return Err(CvmError::InvalidResponse("response too short for payload".into()));
+        return Err(CvmError::InvalidResponse(
+            "response too short for payload".into(),
+        ));
     }
 
     let mut offset = 2; // skip version + status
 
     // TSTInfo
     let tstinfo_len = u32::from_be_bytes([
-        response[offset], response[offset + 1], response[offset + 2], response[offset + 3],
+        response[offset],
+        response[offset + 1],
+        response[offset + 2],
+        response[offset + 3],
     ]) as usize;
     offset += 4;
     if offset + tstinfo_len > response.len() {
@@ -95,10 +106,15 @@ pub fn parse_response_payload(response: &[u8]) -> Result<CvmPayload, CvmError> {
 
     // signedAttrs
     if offset + 4 > response.len() {
-        return Err(CvmError::InvalidResponse("missing signed_attrs length".into()));
+        return Err(CvmError::InvalidResponse(
+            "missing signed_attrs length".into(),
+        ));
     }
     let sa_len = u32::from_be_bytes([
-        response[offset], response[offset + 1], response[offset + 2], response[offset + 3],
+        response[offset],
+        response[offset + 1],
+        response[offset + 2],
+        response[offset + 3],
     ]) as usize;
     offset += 4;
     if offset + sa_len > response.len() {
@@ -112,7 +128,10 @@ pub fn parse_response_payload(response: &[u8]) -> Result<CvmPayload, CvmError> {
         return Err(CvmError::InvalidResponse("missing signature length".into()));
     }
     let sig_len = u32::from_be_bytes([
-        response[offset], response[offset + 1], response[offset + 2], response[offset + 3],
+        response[offset],
+        response[offset + 1],
+        response[offset + 2],
+        response[offset + 3],
     ]) as usize;
     offset += 4;
     if offset + sig_len > response.len() {

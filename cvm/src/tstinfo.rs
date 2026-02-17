@@ -2,7 +2,6 @@
 ///
 /// Constructs TSTInfo without an ASN.1 library by filling variable fields
 /// into a known DER structure. All fixed fields are pre-computed constants.
-
 use crate::protocol::HashAlgorithm;
 
 // ASN.1 tags
@@ -28,13 +27,27 @@ const ACCURACY: &[u8] = &[TAG_SEQUENCE, 0x03, TAG_INTEGER, 0x01, 0x01];
 // [0] EXPLICIT SEQUENCE { SET { SEQUENCE { OID(commonName), UTF8String "CC-TSA" } } }
 // This is a simplified placeholder — real deployment would use the certificate's subject DN.
 const TSA_NAME: &[u8] = &[
-    TAG_CONTEXT_0, 0x15, // [0] EXPLICIT, length 21
-    TAG_SEQUENCE, 0x13, // SEQUENCE
-    0x31, 0x11, // SET
-    TAG_SEQUENCE, 0x0F, // SEQUENCE
-    TAG_OID, 0x03, 0x55, 0x04, 0x03, // OID: commonName (2.5.4.3)
-    0x0C, 0x06, // UTF8String, length 6
-    b'C', b'C', b'-', b'T', b'S', b'A',
+    TAG_CONTEXT_0,
+    0x15, // [0] EXPLICIT, length 21
+    TAG_SEQUENCE,
+    0x13, // SEQUENCE
+    0x31,
+    0x11, // SET
+    TAG_SEQUENCE,
+    0x0F, // SEQUENCE
+    TAG_OID,
+    0x03,
+    0x55,
+    0x04,
+    0x03, // OID: commonName (2.5.4.3)
+    0x0C,
+    0x06, // UTF8String, length 6
+    b'C',
+    b'C',
+    b'-',
+    b'T',
+    b'S',
+    b'A',
 ];
 
 /// AlgorithmIdentifier DER bytes for each supported hash algorithm.
@@ -45,21 +58,57 @@ impl HashAlgorithm {
         match self {
             // SHA-256: 30 0D 06 09 60 86 48 01 65 03 04 02 01 05 00
             HashAlgorithm::Sha256 => &[
-                TAG_SEQUENCE, 0x0D,
-                TAG_OID, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01,
-                0x05, 0x00, // NULL
+                TAG_SEQUENCE,
+                0x0D,
+                TAG_OID,
+                0x09,
+                0x60,
+                0x86,
+                0x48,
+                0x01,
+                0x65,
+                0x03,
+                0x04,
+                0x02,
+                0x01,
+                0x05,
+                0x00, // NULL
             ],
             // SHA-384: 30 0D 06 09 60 86 48 01 65 03 04 02 02 05 00
             HashAlgorithm::Sha384 => &[
-                TAG_SEQUENCE, 0x0D,
-                TAG_OID, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x02,
-                0x05, 0x00,
+                TAG_SEQUENCE,
+                0x0D,
+                TAG_OID,
+                0x09,
+                0x60,
+                0x86,
+                0x48,
+                0x01,
+                0x65,
+                0x03,
+                0x04,
+                0x02,
+                0x02,
+                0x05,
+                0x00,
             ],
             // SHA-512: 30 0D 06 09 60 86 48 01 65 03 04 02 03 05 00
             HashAlgorithm::Sha512 => &[
-                TAG_SEQUENCE, 0x0D,
-                TAG_OID, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03,
-                0x05, 0x00,
+                TAG_SEQUENCE,
+                0x0D,
+                TAG_OID,
+                0x09,
+                0x60,
+                0x86,
+                0x48,
+                0x01,
+                0x65,
+                0x03,
+                0x04,
+                0x02,
+                0x03,
+                0x05,
+                0x00,
             ],
         }
     }

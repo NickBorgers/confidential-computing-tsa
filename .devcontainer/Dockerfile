@@ -90,7 +90,12 @@ RUN cd ~/.claude/plugins/cache/playwright-skill/playwright-skill/*/skills/playwr
 
 # Switch back to root for any remaining operations
 USER root
-# --- Future: Uncomment to add Rust toolchain ---
-# RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
-#     && . /home/vscode/.cargo/env \
-#     && rustup component add rustfmt clippy
+# Install Rust toolchain for vscode user
+USER vscode
+ENV CARGO_HOME=/home/vscode/.cargo
+ENV RUSTUP_HOME=/home/vscode/.rustup
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
+    && . /home/vscode/.cargo/env \
+    && rustup component add rustfmt clippy
+ENV PATH="/home/vscode/.cargo/bin:${PATH}"
+USER root

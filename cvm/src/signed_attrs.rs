@@ -8,9 +8,8 @@
 ///   { messageDigest,        SET { OCTET STRING (SHA-384 of TSTInfo DER) } },
 ///   { signingCertificateV2, SET { SigningCertificateV2 } },
 /// }
-
 use crate::tstinfo::encode_der_length;
-use sha2::{Sha384, Digest};
+use sha2::{Digest, Sha384};
 
 // ASN.1 tags
 const TAG_SET: u8 = 0x31;
@@ -19,16 +18,24 @@ const TAG_OID: u8 = 0x06;
 const TAG_OCTET_STRING: u8 = 0x04;
 
 // OID: contentType (1.2.840.113549.1.9.3)
-const OID_CONTENT_TYPE: &[u8] = &[TAG_OID, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x03];
+const OID_CONTENT_TYPE: &[u8] = &[
+    TAG_OID, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x03,
+];
 
 // OID: id-ct-TSTInfo (1.2.840.113549.1.9.16.1.4)
-const OID_CT_TSTINFO: &[u8] = &[TAG_OID, 0x0B, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x10, 0x01, 0x04];
+const OID_CT_TSTINFO: &[u8] = &[
+    TAG_OID, 0x0B, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x10, 0x01, 0x04,
+];
 
 // OID: messageDigest (1.2.840.113549.1.9.4)
-const OID_MESSAGE_DIGEST: &[u8] = &[TAG_OID, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x04];
+const OID_MESSAGE_DIGEST: &[u8] = &[
+    TAG_OID, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x04,
+];
 
 // OID: signingCertificateV2 (1.2.840.113549.1.9.16.2.47)
-const OID_SIGNING_CERT_V2: &[u8] = &[TAG_OID, 0x0B, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x10, 0x02, 0x2F];
+const OID_SIGNING_CERT_V2: &[u8] = &[
+    TAG_OID, 0x0B, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x10, 0x02, 0x2F,
+];
 
 /// Pre-computed SHA-256 hash of the TSA's signing certificate.
 /// This is set at build/init time and remains constant.
@@ -185,14 +192,24 @@ mod tests {
         let attrs = build_signed_attrs(&tstinfo, &cert_hash);
 
         // Skip the outer SET header
-        let content_start = if attrs[1] < 0x80 { 2 } else if attrs[1] == 0x81 { 3 } else { 4 };
+        let content_start = if attrs[1] < 0x80 {
+            2
+        } else if attrs[1] == 0x81 {
+            3
+        } else {
+            4
+        };
         let content = &attrs[content_start..];
 
         // Count SEQUENCE tags at the top level
         let mut count = 0;
         let mut pos = 0;
         while pos < content.len() {
-            assert_eq!(content[pos], TAG_SEQUENCE, "expected SEQUENCE at position {}", pos);
+            assert_eq!(
+                content[pos], TAG_SEQUENCE,
+                "expected SEQUENCE at position {}",
+                pos
+            );
             count += 1;
             pos += 1;
             // Read length
@@ -201,7 +218,10 @@ mod tests {
             } else if content[pos] == 0x81 {
                 (content[pos + 1] as usize, 2)
             } else {
-                (((content[pos + 1] as usize) << 8) | content[pos + 2] as usize, 3)
+                (
+                    ((content[pos + 1] as usize) << 8) | content[pos + 2] as usize,
+                    3,
+                )
             };
             pos += len_bytes + len;
         }

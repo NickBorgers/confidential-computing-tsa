@@ -1,10 +1,10 @@
-/// Binary protocol for CVM <-> Wrapper communication over vsock.
-///
-/// Request (Wrapper -> CVM):
-///   [version:1][hash_algorithm:1][digest_length:1][digest:N][has_nonce:1][nonce_length:1][nonce:M]
-///
-/// Response (CVM -> Wrapper):
-///   [version:1][status:1][tstinfo_length:4][tstinfo:T][signed_attrs_length:4][signed_attrs:A][signature_length:4][signature:S]
+//! Binary protocol for CVM <-> Wrapper communication over vsock.
+//!
+//! Request (Wrapper -> CVM):
+//!   [version:1][hash_algorithm:1][digest_length:1][digest:N][has_nonce:1][nonce_length:1][nonce:M]
+//!
+//! Response (CVM -> Wrapper):
+//!   [version:1][status:1][tstinfo_length:4][tstinfo:T][signed_attrs_length:4][signed_attrs:A][signature_length:4][signature:S]
 
 const PROTOCOL_VERSION: u8 = 0x01;
 
@@ -39,7 +39,7 @@ impl HashAlgorithm {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SignRequest {
     pub hash_algorithm: HashAlgorithm,
     pub digest: Vec<u8>,
@@ -85,11 +85,17 @@ impl core::fmt::Display for ParseError {
             Self::InvalidVersion(v) => write!(f, "invalid protocol version: {:#04x}", v),
             Self::InvalidHashAlgorithm(a) => write!(f, "invalid hash algorithm: {:#04x}", a),
             Self::DigestLengthMismatch { declared, expected } => {
-                write!(f, "digest length {} does not match algorithm (expected {})", declared, expected)
+                write!(
+                    f,
+                    "digest length {} does not match algorithm (expected {})",
+                    declared, expected
+                )
             }
             Self::DigestTruncated => write!(f, "digest truncated"),
             Self::InvalidNonceFlag(v) => write!(f, "invalid nonce flag: {:#04x}", v),
-            Self::NonceTooLong(n) => write!(f, "nonce too long: {} bytes (max {})", n, MAX_NONCE_LENGTH),
+            Self::NonceTooLong(n) => {
+                write!(f, "nonce too long: {} bytes (max {})", n, MAX_NONCE_LENGTH)
+            }
             Self::NonceTruncated => write!(f, "nonce truncated"),
             Self::TrailingData => write!(f, "trailing data after request"),
         }
@@ -110,8 +116,8 @@ pub fn parse_request(data: &[u8]) -> Result<SignRequest, ParseError> {
         return Err(ParseError::InvalidVersion(version));
     }
 
-    let algo = HashAlgorithm::from_byte(data[1])
-        .ok_or(ParseError::InvalidHashAlgorithm(data[1]))?;
+    let algo =
+        HashAlgorithm::from_byte(data[1]).ok_or(ParseError::InvalidHashAlgorithm(data[1]))?;
 
     let digest_length = data[2];
     let expected_length = algo.digest_length();
@@ -169,7 +175,14 @@ pub fn parse_request(data: &[u8]) -> Result<SignRequest, ParseError> {
 
 /// Serialize a sign response to send back to the wrapper.
 pub fn serialize_response(resp: &SignResponse) -> Vec<u8> {
-    let total = 1 + 1 + 4 + resp.tstinfo_der.len() + 4 + resp.signed_attrs_der.len() + 4 + resp.signature.len();
+    let total = 1
+        + 1
+        + 4
+        + resp.tstinfo_der.len()
+        + 4
+        + resp.signed_attrs_der.len()
+        + 4
+        + resp.signature.len();
     let mut buf = Vec::with_capacity(total);
 
     buf.push(PROTOCOL_VERSION);
@@ -249,7 +262,10 @@ mod tests {
     #[test]
     fn reject_invalid_algorithm() {
         let req = vec![0x01, 0x04, 32];
-        assert_eq!(parse_request(&req), Err(ParseError::InvalidHashAlgorithm(0x04)));
+        assert_eq!(
+            parse_request(&req),
+            Err(ParseError::InvalidHashAlgorithm(0x04))
+        );
     }
 
     #[test]
@@ -257,7 +273,10 @@ mod tests {
         let req = vec![0x01, 0x01, 48]; // SHA-256 but length=48
         assert_eq!(
             parse_request(&req),
-            Err(ParseError::DigestLengthMismatch { declared: 48, expected: 32 })
+            Err(ParseError::DigestLengthMismatch {
+                declared: 48,
+                expected: 32
+            })
         );
     }
 
@@ -296,7 +315,10 @@ mod tests {
         let bytes = serialize_response(&resp);
         assert_eq!(bytes[0], 0x01); // version
         assert_eq!(bytes[1], 0x00); // success
-        assert_eq!(u32::from_be_bytes([bytes[2], bytes[3], bytes[4], bytes[5]]), 3); // tstinfo len
+        assert_eq!(
+            u32::from_be_bytes([bytes[2], bytes[3], bytes[4], bytes[5]]),
+            3
+        ); // tstinfo len
         assert_eq!(&bytes[6..9], &[1, 2, 3]); // tstinfo
     }
 
@@ -304,9 +326,18 @@ mod tests {
     fn error_response_has_empty_payloads() {
         let bytes = serialize_error_response(ResponseStatus::InvalidRequest);
         assert_eq!(bytes[1], 0x01); // invalid request status
-        // All three length fields should be zero
-        assert_eq!(u32::from_be_bytes([bytes[2], bytes[3], bytes[4], bytes[5]]), 0);
-        assert_eq!(u32::from_be_bytes([bytes[6], bytes[7], bytes[8], bytes[9]]), 0);
-        assert_eq!(u32::from_be_bytes([bytes[10], bytes[11], bytes[12], bytes[13]]), 0);
+                                    // All three length fields should be zero
+        assert_eq!(
+            u32::from_be_bytes([bytes[2], bytes[3], bytes[4], bytes[5]]),
+            0
+        );
+        assert_eq!(
+            u32::from_be_bytes([bytes[6], bytes[7], bytes[8], bytes[9]]),
+            0
+        );
+        assert_eq!(
+            u32::from_be_bytes([bytes[10], bytes[11], bytes[12], bytes[13]]),
+            0
+        );
     }
 }
