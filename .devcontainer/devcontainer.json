@@ -13,7 +13,8 @@
     "vscode": {
       "extensions": [
         "davidanson.vscode-markdownlint",
-        "bierner.markdown-mermaid"
+        "bierner.markdown-mermaid",
+        "rust-lang.rust-analyzer"
       ]
     }
   },
