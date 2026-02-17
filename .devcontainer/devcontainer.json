@@ -27,7 +27,8 @@
     "source=${localEnv:HOME}/.azure,target=/home/vscode/.azure,type=bind"
   ],
   "remoteEnv": {
-    "SSH_AUTH_SOCK": ""
+    "SSH_AUTH_SOCK": "",
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
   },
   "remoteUser": "vscode"
 }

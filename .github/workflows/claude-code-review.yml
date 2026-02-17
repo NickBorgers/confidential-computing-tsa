@@ -13,7 +13,16 @@ run-name: >-
 # - The devcontainer is NEVER rebuilt from PR branches to prevent malicious Dockerfile injection
 # - External PRs (from forks) are blocked from triggering Claude
 #
-# ARCHITECTURE: This file is the orchestrator. Each review agent lives in its own file:
+# ARCHITECTURE: This workflow uses Claude Code Agent Teams to run all review
+# agents in parallel within a single session. The team lead coordinates 7
+# specialist reviewer teammates and synthesizes a merge decision.
+#
+# Previous architecture used 7 sequential reusable workflow calls (one per
+# reviewer), each booting a separate devcontainer. Agent teams consolidate
+# this into a single devcontainer with parallel review teammates.
+#
+# Individual review workflow files are retained for reference but no longer
+# called by this orchestrator:
 #   review-design.yml         - Design & intent validation
 #   review-code-content.yml   - Code quality & documentation accuracy
 #   review-test.yml           - Test coverage & quality (Rust only)
@@ -516,214 +525,14 @@ jobs:
           path: fix-failures-output.jsonl
           retention-days: 7
 
-  # ─── Review Agents (each in its own reusable workflow file) ────────────
+  # ─── Agent Team Review (replaces 7 sequential review jobs) ─────────────
+  # Uses Claude Code Agent Teams to run all reviewers in parallel within
+  # a single session. The team lead creates reviewer teammates, coordinates
+  # their work, and synthesizes the merge decision.
 
-  design-review:
+  agent-team-review:
     needs: [get-context, build-devcontainer]
     if: |
-      needs.get-context.outputs.pr_number != '' &&
-      needs.get-context.outputs.is_draft != 'true' &&
-      needs.get-context.outputs.reviews_already_passed != 'true' &&
-      needs.get-context.outputs.author_authorized == 'true' &&
-      needs.get-context.outputs.tests_passed == 'true'
-    permissions:
-      contents: write
-      pull-requests: write
-      issues: write
-      id-token: write
-      packages: read
-    uses: ./.github/workflows/review-design.yml
-    with:
-      pr_number: ${{ needs.get-context.outputs.pr_number }}
-      pr_title: ${{ needs.get-context.outputs.pr_title }}
-      pr_body_b64: ${{ needs.get-context.outputs.pr_body_b64 }}
-      head_ref: ${{ needs.get-context.outputs.head_ref }}
-      head_repo: ${{ needs.get-context.outputs.head_repo }}
-      issue_number: ${{ needs.get-context.outputs.issue_number }}
-      issue_title: ${{ needs.get-context.outputs.issue_title }}
-      issue_body_b64: ${{ needs.get-context.outputs.issue_body_b64 }}
-      devcontainer_image: ghcr.io/nickborgers/confidential-computing-tsa-devcontainer
-    secrets:
-      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-      WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
-
-  claude-review:
-    name: Code & Content Review
-    needs: [get-context, build-devcontainer, design-review]
-    if: |
-      always() &&
-      needs.get-context.outputs.pr_number != '' &&
-      needs.get-context.outputs.is_draft != 'true' &&
-      needs.get-context.outputs.reviews_already_passed != 'true' &&
-      needs.get-context.outputs.author_authorized == 'true' &&
-      needs.get-context.outputs.config_only != 'true' &&
-      needs.get-context.outputs.tests_passed == 'true'
-    permissions:
-      contents: write
-      pull-requests: write
-      issues: write
-      id-token: write
-      packages: read
-    uses: ./.github/workflows/review-code-content.yml
-    with:
-      pr_number: ${{ needs.get-context.outputs.pr_number }}
-      head_ref: ${{ needs.get-context.outputs.head_ref }}
-      head_repo: ${{ needs.get-context.outputs.head_repo }}
-      has_rust_code: ${{ needs.get-context.outputs.has_rust_code }}
-      has_docs: ${{ needs.get-context.outputs.has_docs }}
-      devcontainer_image: ghcr.io/nickborgers/confidential-computing-tsa-devcontainer
-    secrets:
-      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-      WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
-
-  test-review:
-    needs: [get-context, build-devcontainer, claude-review]
-    if: |
-      always() &&
-      needs.get-context.outputs.pr_number != '' &&
-      needs.get-context.outputs.is_draft != 'true' &&
-      needs.get-context.outputs.reviews_already_passed != 'true' &&
-      needs.get-context.outputs.author_authorized == 'true' &&
-      needs.get-context.outputs.has_rust_code == 'true' &&
-      needs.get-context.outputs.tests_passed == 'true'
-    permissions:
-      contents: write
-      pull-requests: write
-      issues: write
-      id-token: write
-      packages: read
-    uses: ./.github/workflows/review-test.yml
-    with:
-      pr_number: ${{ needs.get-context.outputs.pr_number }}
-      head_ref: ${{ needs.get-context.outputs.head_ref }}
-      head_repo: ${{ needs.get-context.outputs.head_repo }}
-      devcontainer_image: ghcr.io/nickborgers/confidential-computing-tsa-devcontainer
-    secrets:
-      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-      WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
-
-  crypto-review:
-    needs: [get-context, build-devcontainer, test-review]
-    if: |
-      always() &&
-      needs.get-context.outputs.pr_number != '' &&
-      needs.get-context.outputs.is_draft != 'true' &&
-      needs.get-context.outputs.reviews_already_passed != 'true' &&
-      needs.get-context.outputs.author_authorized == 'true' &&
-      needs.get-context.outputs.config_only != 'true' &&
-      needs.get-context.outputs.tests_passed == 'true'
-    permissions:
-      contents: write
-      pull-requests: write
-      issues: write
-      id-token: write
-      packages: read
-    uses: ./.github/workflows/review-crypto.yml
-    with:
-      pr_number: ${{ needs.get-context.outputs.pr_number }}
-      head_ref: ${{ needs.get-context.outputs.head_ref }}
-      head_repo: ${{ needs.get-context.outputs.head_repo }}
-      devcontainer_image: ghcr.io/nickborgers/confidential-computing-tsa-devcontainer
-    secrets:
-      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-      WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
-
-  docs-review:
-    needs: [get-context, build-devcontainer, crypto-review]
-    if: |
-      always() &&
-      needs.get-context.outputs.pr_number != '' &&
-      needs.get-context.outputs.is_draft != 'true' &&
-      needs.get-context.outputs.reviews_already_passed != 'true' &&
-      needs.get-context.outputs.author_authorized == 'true' &&
-      needs.get-context.outputs.tests_passed == 'true'
-    permissions:
-      contents: write
-      pull-requests: write
-      issues: write
-      id-token: write
-      packages: read
-    uses: ./.github/workflows/review-docs.yml
-    with:
-      pr_number: ${{ needs.get-context.outputs.pr_number }}
-      pr_title: ${{ needs.get-context.outputs.pr_title }}
-      pr_body_b64: ${{ needs.get-context.outputs.pr_body_b64 }}
-      head_ref: ${{ needs.get-context.outputs.head_ref }}
-      head_repo: ${{ needs.get-context.outputs.head_repo }}
-      issue_number: ${{ needs.get-context.outputs.issue_number }}
-      issue_title: ${{ needs.get-context.outputs.issue_title }}
-      issue_body_b64: ${{ needs.get-context.outputs.issue_body_b64 }}
-      devcontainer_image: ghcr.io/nickborgers/confidential-computing-tsa-devcontainer
-    secrets:
-      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-      WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
-
-  standards-review:
-    needs: [get-context, build-devcontainer, docs-review]
-    if: |
-      always() &&
-      needs.get-context.outputs.pr_number != '' &&
-      needs.get-context.outputs.is_draft != 'true' &&
-      needs.get-context.outputs.reviews_already_passed != 'true' &&
-      needs.get-context.outputs.author_authorized == 'true' &&
-      needs.get-context.outputs.tests_passed == 'true'
-    permissions:
-      contents: read
-      pull-requests: write
-      issues: write
-      id-token: write
-      packages: read
-    uses: ./.github/workflows/review-standards.yml
-    with:
-      pr_number: ${{ needs.get-context.outputs.pr_number }}
-      pr_title: ${{ needs.get-context.outputs.pr_title }}
-      pr_body_b64: ${{ needs.get-context.outputs.pr_body_b64 }}
-      head_ref: ${{ needs.get-context.outputs.head_ref }}
-      head_repo: ${{ needs.get-context.outputs.head_repo }}
-      issue_number: ${{ needs.get-context.outputs.issue_number }}
-      issue_title: ${{ needs.get-context.outputs.issue_title }}
-      issue_body_b64: ${{ needs.get-context.outputs.issue_body_b64 }}
-      devcontainer_image: ghcr.io/nickborgers/confidential-computing-tsa-devcontainer
-    secrets:
-      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-      WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
-
-  rfc-standards-review:
-    needs: [get-context, build-devcontainer, standards-review]
-    if: |
-      always() &&
-      needs.get-context.outputs.pr_number != '' &&
-      needs.get-context.outputs.is_draft != 'true' &&
-      needs.get-context.outputs.reviews_already_passed != 'true' &&
-      needs.get-context.outputs.author_authorized == 'true' &&
-      needs.get-context.outputs.tests_passed == 'true'
-    permissions:
-      contents: read
-      pull-requests: write
-      issues: write
-      id-token: write
-      packages: read
-    uses: ./.github/workflows/review-rfc-standards.yml
-    with:
-      pr_number: ${{ needs.get-context.outputs.pr_number }}
-      pr_title: ${{ needs.get-context.outputs.pr_title }}
-      pr_body_b64: ${{ needs.get-context.outputs.pr_body_b64 }}
-      head_ref: ${{ needs.get-context.outputs.head_ref }}
-      head_repo: ${{ needs.get-context.outputs.head_repo }}
-      issue_number: ${{ needs.get-context.outputs.issue_number }}
-      issue_title: ${{ needs.get-context.outputs.issue_title }}
-      issue_body_b64: ${{ needs.get-context.outputs.issue_body_b64 }}
-      devcontainer_image: ghcr.io/nickborgers/confidential-computing-tsa-devcontainer
-    secrets:
-      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-      WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
-
-  # ─── Merge Decision ───────────────────────────────────────────────────
-
-  merge-decision:
-    needs: [get-context, build-devcontainer, claude-review, design-review, test-review, crypto-review, docs-review, standards-review, rfc-standards-review]
-    if: |
-      always() &&
       needs.get-context.outputs.pr_number != '' &&
       needs.get-context.outputs.is_draft != 'true' &&
       needs.get-context.outputs.reviews_already_passed != 'true' &&
@@ -780,7 +589,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Make merge decision in devcontainer
+      - name: Run agent team review in devcontainer
         if: steps.verify-tests.outputs.verified == 'true'
         uses: devcontainers/ci@v0.3
         with:
@@ -790,63 +599,163 @@ jobs:
           env: |
             CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
+            CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
             PR_NUMBER=${{ needs.get-context.outputs.pr_number }}
+            PR_TITLE=${{ needs.get-context.outputs.pr_title }}
+            PR_BODY_B64=${{ needs.get-context.outputs.pr_body_b64 }}
+            ISSUE_NUMBER=${{ needs.get-context.outputs.issue_number }}
+            ISSUE_TITLE=${{ needs.get-context.outputs.issue_title }}
+            ISSUE_BODY_B64=${{ needs.get-context.outputs.issue_body_b64 }}
             HEAD_REF=${{ needs.get-context.outputs.head_ref }}
-            CLAUDE_REVIEW_RESULT=${{ needs.claude-review.result }}
-            DESIGN_REVIEW_RESULT=${{ needs.design-review.result }}
-            TEST_REVIEW_RESULT=${{ needs.test-review.result }}
-            CRYPTO_REVIEW_RESULT=${{ needs.crypto-review.result }}
-            DOCS_REVIEW_RESULT=${{ needs.docs-review.result }}
-            STANDARDS_REVIEW_RESULT=${{ needs.standards-review.result }}
-            RFC_STANDARDS_REVIEW_RESULT=${{ needs.rfc-standards-review.result }}
+            REPO=${{ github.repository }}
+            HAS_RUST_CODE=${{ needs.get-context.outputs.has_rust_code }}
+            HAS_DOCS=${{ needs.get-context.outputs.has_docs }}
+            CONFIG_ONLY=${{ needs.get-context.outputs.config_only }}
           runCmd: |
+            PR_BODY=$(echo "$PR_BODY_B64" | base64 -d 2>/dev/null || echo "")
+            ISSUE_BODY=$(echo "$ISSUE_BODY_B64" | base64 -d 2>/dev/null || echo "")
+
+            ISSUE_COMMENTS=""
+            if [ -n "$ISSUE_NUMBER" ]; then
+              ISSUE_COMMENTS=$(gh api "repos/${REPO}/issues/${ISSUE_NUMBER}/comments" --jq '.[] | "---\n**\(.user.login)** commented at \(.created_at):\n\(.body)\n"' 2>/dev/null | head -c 50000 || echo "")
+            fi
+
             claude --print \
               --verbose \
               --output-format stream-json \
-              --model sonnet \
+              --model opus \
               --dangerously-skip-permissions \
-              --max-turns 150 \
-              "You are the FINAL DECISION MAKER for PR #${PR_NUMBER}.
+              --max-turns 600 \
+              --teammate-mode in-process \
+              "You are the REVIEW TEAM LEAD for PR #${PR_NUMBER} in ${REPO}.
 
-            You have personal responsibility to approve or reject this PR for merge to main.
+            Your job is to coordinate a team of specialist reviewers, then synthesize their
+            findings into a final merge decision. Use Claude Code Agent Teams to create
+            reviewer teammates that work IN PARALLEL.
 
-            **REVIEW STATUS:**
-            - Code & Content Review: ${CLAUDE_REVIEW_RESULT}
-            - Design Review: ${DESIGN_REVIEW_RESULT}
-            - Test Review: ${TEST_REVIEW_RESULT}
-            - Cryptographic Design Review: ${CRYPTO_REVIEW_RESULT}
-            - Docs Review: ${DOCS_REVIEW_RESULT}
-            - External Reviewability Review: ${STANDARDS_REVIEW_RESULT}
-            - RFC Standards Review: ${RFC_STANDARDS_REVIEW_RESULT}
+            **PR CONTEXT:**
+            PR Title: ${PR_TITLE}
+            PR Description: ${PR_BODY}
+            Linked Issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}
+            Issue Description: ${ISSUE_BODY}
+            Issue Comments: ${ISSUE_COMMENTS}
+            Has Rust Code: ${HAS_RUST_CODE}
+            Has Docs: ${HAS_DOCS}
+            Config Only: ${CONFIG_ONLY}
 
-            **YOUR TASK:**
-            1. Read review comments: \`gh pr view ${PR_NUMBER} --comments\`
-            2. Check for merge conflicts: \`git fetch origin main && git merge-base --is-ancestor origin/main HEAD || git merge origin/main --no-commit --no-ff\`
-            3. If conflicts AND PR should be merged, resolve them
-            4. Make a GO/NO-GO decision
+            **STEP 1: CREATE THE REVIEW TEAM**
 
-            **CRITERIA:**
-            - GO: All reviews passed or had only minor non-blocking issues
-            - NO-GO: Any review found blocking issues, unresolvable conflicts, or tests failing
+            Create an agent team named 'pr-review-${PR_NUMBER}' with the following teammates.
+            Each teammate should use Sonnet model. Give each a focused, specific task.
 
-            BEFORE PUSHING: rebase with \`git pull --rebase origin ${HEAD_REF}\`
+            Skip teammates whose review category is not relevant (e.g., skip test-reviewer
+            if no Rust code, skip crypto-reviewer if config_only=true).
 
-            Post exactly ONE comment:
+            TEAMMATE 1 - Design Reviewer:
+            Review PR #${PR_NUMBER}. Validate that this PR correctly implements the intent
+            described in the linked issue. Evaluate design decisions: architecture fit,
+            trade-offs, edge cases, scalability, maintainability. Reference
+            docs/01-architecture-overview.md for context. Run: git diff origin/main...HEAD.
+            Write your findings to /tmp/review-design.md with sections: Intent Validation,
+            Design Analysis (Strengths, Concerns, Suggestions), Conclusion
+            (Approved/Approved with reservations/Needs revision).
+
+            TEAMMATE 2 - Code & Content Reviewer:
+            Review PR #${PR_NUMBER}. Focus on code quality and content accuracy. Only report
+            actionable issues. If Rust code: check error handling, memory safety, thread
+            safety, unsafe blocks. If docs: check technical accuracy, cross-doc consistency,
+            standards references. Run cargo test/fmt/clippy if Rust code present. Run
+            markdownlint if docs present. For HIGH SEVERITY issues, fix directly, commit,
+            and push (rebase first: git pull --rebase origin ${HEAD_REF}). Write findings
+            to /tmp/review-code-content.md with sections: Issues Found, Fixes Applied,
+            Conclusion (Approved/Needs changes/Blocking issues).
+
+            TEAMMATE 3 - Test Reviewer (SKIP if has_rust_code=false):
+            Review PR #${PR_NUMBER}. Check for missing tests, proper #[cfg(test)] usage,
+            async tests with #[tokio::test], missing edge case coverage, timing-dependent
+            tests. Run cargo test to verify. For HIGH SEVERITY issues, fix directly and
+            push. Write findings to /tmp/review-test.md with sections: Issues Found,
+            Fixes Applied, Conclusion.
+
+            TEAMMATE 4 - Cryptographic Design Reviewer (SKIP if config_only=true):
+            Review PR #${PR_NUMBER}. Validate crypto claims against
+            docs/03-quantum-safe-threshold-crypto.md, docs/06-rfc3161-compliance.md,
+            docs/07-threat-model.md. Check for incorrect crypto claims, threshold parameter
+            inconsistencies, protocol errors, PQ algorithm misuse, key management issues,
+            timing side-channels, missing security assumptions. For HIGH SEVERITY errors,
+            fix and push. Write findings to /tmp/review-crypto.md with sections: Issues
+            Found, Fixes Applied, Conclusion.
+
+            TEAMMATE 5 - Documentation Reviewer:
+            Review PR #${PR_NUMBER}. Check if docs need updating for the changes made.
+            Only flag docs that MUST be updated. If updates needed, make changes directly
+            and push (rebase first). Write findings to /tmp/review-docs.md with sections:
+            Updates Required, Updates Applied, Conclusion.
+
+            TEAMMATE 6 - External Reviewability Reviewer (SKIP if config_only=true):
+            Review PR #${PR_NUMBER}. Evaluate whether changes preserve the invariant: a
+            relying party must verify CC-TSA security without trusting the operator.
+            Check 6 invariants: no org process trust for security, attestation measurement
+            binding, key material ephemerality, external verifiability, structural prevention
+            vs detection, software immutability during key lifetime. Read docs/07-threat-model.md
+            and docs/01-architecture-overview.md. This is READ-ONLY - do not push changes.
+            Write findings to /tmp/review-standards.md.
+
+            TEAMMATE 7 - RFC Standards Reviewer (SKIP if config_only=true):
+            Review PR #${PR_NUMBER}. Validate RFC 3161, NIST SP 800-208, AMD SEV-SNP
+            compliance. Check timestamp protocol format, PQ algorithm parameters, attestation
+            report format, ASN.1 encoding. Read docs/06-rfc3161-compliance.md and
+            docs/02-confidential-computing-and-time.md. This is READ-ONLY - do not push.
+            Write findings to /tmp/review-rfc-standards.md.
+
+            **STEP 2: WAIT FOR ALL TEAMMATES TO COMPLETE**
+
+            Monitor the team. All teammates should work in parallel. Wait until every
+            teammate has completed their task and written their review file.
+
+            **STEP 3: SYNTHESIZE AND POST RESULTS**
+
+            Once all teammates are done:
+
+            1. Read all review files from /tmp/review-*.md
+            2. Post INDIVIDUAL review comments for each reviewer (one gh pr comment per
+               reviewer, using the same format as the review files). This preserves the
+               detailed per-specialist feedback that has been valuable historically.
+            3. Check for merge conflicts: git fetch origin main && git merge-base --is-ancestor origin/main HEAD || echo CONFLICTS
+            4. If conflicts exist AND the PR should be merged, resolve them.
+            5. Make your GO/NO-GO decision based on all reviews:
+               - GO: All reviews passed or had only minor non-blocking issues
+               - NO-GO: Any review found blocking issues, unresolvable conflicts, or tests failing
+            6. Post the final merge decision comment:
+
             gh pr comment ${PR_NUMBER} --body '## Merge Decision
 
             **Decision: [GO | NO-GO]**
 
-            [If GO: \"Ready for merge to main and production deployment.\"]
-            [If NO-GO: List specific blockers that must be resolved.]
+            ### Review Summary
+            | Agent | Status |
+            |-------|--------|
+            | Design Review | [Passed/Failed/Skipped] |
+            | Code & Content Review | [Passed/Failed/Skipped] |
+            | Test Review | [Passed/Failed/Skipped] |
+            | Cryptographic Design Review | [Passed/Failed/Skipped] |
+            | Documentation Review | [Passed/Failed/Skipped] |
+            | External Reviewability Review | [Passed/Failed/Skipped] |
+            | RFC Standards Review | [Passed/Failed/Skipped] |
 
-            [If you made fixes: \"Applied fixes: [brief description]\"]'" < /dev/null 2>&1 | tee /workspaces/confidential-computing-tsa/merge-decision-output.jsonl
+            [If GO: Ready for merge to main.]
+            [If NO-GO: List specific blockers.]
 
-      - name: Upload merge decision output
+            ---
+            Reviews conducted by Claude Code Agent Team (parallel execution)
+            Generated by Claude Code Review workflow'" < /dev/null 2>&1 | tee /workspaces/confidential-computing-tsa/agent-team-review-output.jsonl
+
+      - name: Upload agent team review output
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: merge-decision-output
-          path: merge-decision-output.jsonl
+          name: agent-team-review-output
+          path: agent-team-review-output.jsonl
           retention-days: 7
 
       - name: Parse merge decision from PR comments
@@ -875,7 +784,7 @@ jobs:
   all-reviews-passed:
     name: All Required Agent Reviews
     runs-on: ubuntu-latest
-    needs: [get-context, build-devcontainer, fix-test-failures, claude-review, design-review, test-review, crypto-review, docs-review, standards-review, rfc-standards-review, merge-decision]
+    needs: [get-context, build-devcontainer, fix-test-failures, agent-team-review]
     if: always()
     permissions:
       statuses: write
@@ -923,26 +832,14 @@ jobs:
           fi
 
           if [ "$TESTS_PASSED" = "true" ]; then
-            for job in build-devcontainer claude-review design-review test-review crypto-review docs-review standards-review rfc-standards-review merge-decision; do
-              RESULT=""
-              case $job in
-                build-devcontainer) RESULT="${{ needs.build-devcontainer.result }}" ;;
-                claude-review) RESULT="${{ needs.claude-review.result }}" ;;
-                design-review) RESULT="${{ needs.design-review.result }}" ;;
-                test-review) RESULT="${{ needs.test-review.result }}" ;;
-                crypto-review) RESULT="${{ needs.crypto-review.result }}" ;;
-                docs-review) RESULT="${{ needs.docs-review.result }}" ;;
-                standards-review) RESULT="${{ needs.standards-review.result }}" ;;
-                rfc-standards-review) RESULT="${{ needs.rfc-standards-review.result }}" ;;
-                merge-decision) RESULT="${{ needs.merge-decision.result }}" ;;
-              esac
-              if ! check_result "$RESULT"; then
-                echo "$job: $RESULT"
-                failed=true
-              fi
-            done
+            # Check the agent team review job result
+            if ! check_result "${{ needs.agent-team-review.result }}"; then
+              echo "Agent team review: ${{ needs.agent-team-review.result }}"
+              failed=true
+            fi
 
-            MERGE_DECISION="${{ needs.merge-decision.outputs.decision }}"
+            # Check the merge decision
+            MERGE_DECISION="${{ needs.agent-team-review.outputs.decision }}"
             if [ "$MERGE_DECISION" = "NO-GO" ] || [ -z "$MERGE_DECISION" ]; then
               echo "Merge decision: ${MERGE_DECISION:-empty}"
               echo "merge_decision_nogo=true" >> $GITHUB_OUTPUT
@@ -1004,14 +901,8 @@ jobs:
           PR_NUMBER: ${{ needs.get-context.outputs.pr_number }}
           TESTS_PASSED: ${{ needs.get-context.outputs.tests_passed }}
           FIX_RESULT: ${{ needs.fix-test-failures.result }}
-          CLAUDE_RESULT: ${{ needs.claude-review.result }}
-          DESIGN_RESULT: ${{ needs.design-review.result }}
-          TEST_RESULT: ${{ needs.test-review.result }}
-          CRYPTO_RESULT: ${{ needs.crypto-review.result }}
-          DOCS_RESULT: ${{ needs.docs-review.result }}
-          STANDARDS_RESULT: ${{ needs.standards-review.result }}
-          RFC_STANDARDS_RESULT: ${{ needs.rfc-standards-review.result }}
-          MERGE_DECISION: ${{ needs.merge-decision.outputs.decision }}
+          TEAM_REVIEW_RESULT: ${{ needs.agent-team-review.result }}
+          MERGE_DECISION: ${{ needs.agent-team-review.outputs.decision }}
           RUN_ID: ${{ github.run_id }}
           REPO: ${{ github.repository }}
           SERVER_URL: ${{ github.server_url }}
@@ -1035,26 +926,21 @@ jobs:
             COMMENT+="**Status:** Some reviews failed or are incomplete\n\n"
           fi
 
-          COMMENT+="### Agent Status\n\n"
-          COMMENT+="| Agent | Status |\n"
-          COMMENT+="|-------|--------|\n"
+          COMMENT+="### Agent Team Status\n\n"
+          COMMENT+="| Component | Status |\n"
+          COMMENT+="|-----------|--------|\n"
 
           if [ "$TESTS_PASSED" = "false" ]; then
             COMMENT+="| Fix Test Failures | $(format_result "$FIX_RESULT") |\n"
           fi
 
           if [ "$TESTS_PASSED" = "true" ]; then
-            COMMENT+="| Design Review | $(format_result "$DESIGN_RESULT") |\n"
-            COMMENT+="| Code & Content Review | $(format_result "$CLAUDE_RESULT") |\n"
-            COMMENT+="| Test Review | $(format_result "$TEST_RESULT") |\n"
-            COMMENT+="| Cryptographic Design Review | $(format_result "$CRYPTO_RESULT") |\n"
-            COMMENT+="| Docs Review | $(format_result "$DOCS_RESULT") |\n"
-            COMMENT+="| External Reviewability Review | $(format_result "$STANDARDS_RESULT") |\n"
-            COMMENT+="| RFC Standards Review | $(format_result "$RFC_STANDARDS_RESULT") |\n"
+            COMMENT+="| Agent Team Review (7 parallel reviewers) | $(format_result "$TEAM_REVIEW_RESULT") |\n"
             COMMENT+="| Merge Decision | ${MERGE_DECISION:-Unknown} |\n"
           fi
 
-          COMMENT+="\n---\n_See individual agent comments above for details._\n"
+          COMMENT+="\n_Individual review comments posted by each teammate above._\n"
+          COMMENT+="\n---\n_Reviews conducted by Claude Code Agent Team (parallel execution)._\n"
           COMMENT+="\nGenerated by Claude Code Review workflow"
 
           echo -e "$COMMENT" | gh pr comment "$PR_NUMBER" --body-file - --repo "$REPO"
