@@ -13,7 +13,15 @@ run-name: >-
 # - The devcontainer is NEVER rebuilt from PR branches to prevent malicious Dockerfile injection
 # - External PRs (from forks) are blocked from triggering Claude
 #
-# ARCHITECTURE: This file is the orchestrator. Each review agent lives in its own file:
+# ARCHITECTURE: This file is the orchestrator. All 7 review agents run in
+# PARALLEL (each in its own reusable workflow file / GHA job), then the
+# merge-decision job synthesizes results after all reviews complete.
+#
+# Parallel execution graph:
+#   [get-context, build-devcontainer] → [design, code, test, crypto, docs,
+#                                        standards, rfc] → merge-decision
+#
+# Review workflow files:
 #   review-design.yml         - Design & intent validation
 #   review-code-content.yml   - Code quality & documentation accuracy
 #   review-test.yml           - Test coverage & quality (Rust only)
@@ -516,7 +524,9 @@ jobs:
           path: fix-failures-output.jsonl
           retention-days: 7
 
-  # ─── Review Agents (each in its own reusable workflow file) ────────────
+  # ─── Review Agents (parallel execution, each in its own workflow file) ─
+  # All review jobs depend only on [get-context, build-devcontainer] and run
+  # in parallel. The merge-decision job waits for all of them to complete.
 
   design-review:
     needs: [get-context, build-devcontainer]
@@ -549,7 +559,7 @@ jobs:
 
   claude-review:
     name: Code & Content Review
-    needs: [get-context, build-devcontainer, design-review]
+    needs: [get-context, build-devcontainer]
     if: |
       always() &&
       needs.get-context.outputs.pr_number != '' &&
@@ -577,7 +587,7 @@ jobs:
       WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
 
   test-review:
-    needs: [get-context, build-devcontainer, claude-review]
+    needs: [get-context, build-devcontainer]
     if: |
       always() &&
       needs.get-context.outputs.pr_number != '' &&
@@ -603,7 +613,7 @@ jobs:
       WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
 
   crypto-review:
-    needs: [get-context, build-devcontainer, test-review]
+    needs: [get-context, build-devcontainer]
     if: |
       always() &&
       needs.get-context.outputs.pr_number != '' &&
@@ -629,7 +639,7 @@ jobs:
       WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
 
   docs-review:
-    needs: [get-context, build-devcontainer, crypto-review]
+    needs: [get-context, build-devcontainer]
     if: |
       always() &&
       needs.get-context.outputs.pr_number != '' &&
@@ -659,7 +669,7 @@ jobs:
       WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
 
   standards-review:
-    needs: [get-context, build-devcontainer, docs-review]
+    needs: [get-context, build-devcontainer]
     if: |
       always() &&
       needs.get-context.outputs.pr_number != '' &&
@@ -689,7 +699,7 @@ jobs:
       WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
 
   rfc-standards-review:
-    needs: [get-context, build-devcontainer, standards-review]
+    needs: [get-context, build-devcontainer]
     if: |
       always() &&
       needs.get-context.outputs.pr_number != '' &&
