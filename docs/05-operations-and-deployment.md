@@ -1142,3 +1142,4 @@ This section maps the CC-TSA design and operational procedures to the requiremen
 | RFC 3161 token format, hybrid signatures, compatibility | [RFC 3161 Compliance](06-rfc3161-compliance.md) |
 | Threat model, STRIDE analysis, residual risks | [Threat Model](07-threat-model.md) |
 | Throughput analysis, scaling strategy, cost estimates | [Throughput & Scaling](08-throughput-and-scaling.md) |
+| Platform integrity, FIPS 140-3, third-party attestation, audit key | [Platform Integrity & Compliance](10-platform-integrity-and-compliance.md) |

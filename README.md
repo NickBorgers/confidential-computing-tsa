@@ -168,6 +168,7 @@ docker build -t cc-tsa .
 | [`docs/07-threat-model.md`](docs/07-threat-model.md) | Threat model, STRIDE analysis, residual risks | Security Engineers, Auditors |
 | [`docs/08-throughput-and-scaling.md`](docs/08-throughput-and-scaling.md) | Throughput analysis, scaling strategy, cost estimates | Architects, Product Managers |
 | [`docs/09-enclave-interface.md`](docs/09-enclave-interface.md) | Binary vsock protocol, CVM state machine, testing strategy | Engineers, Security Reviewers |
+| [`docs/10-platform-integrity-and-compliance.md`](docs/10-platform-integrity-and-compliance.md) | Platform integrity, FIPS 140-3, third-party attestation, audit key | Security Auditors, Compliance Officers |
 
 ## Quick Answers
 

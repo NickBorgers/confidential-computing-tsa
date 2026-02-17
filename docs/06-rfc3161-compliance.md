@@ -1053,6 +1053,7 @@ See [Confidential Computing & Time](02-confidential-computing-and-time.md), Sect
 | Deployment guide, monitoring, incident response, DKG ceremony ops | [Operations and Deployment](05-operations-and-deployment.md) |
 | STRIDE analysis, attack scenarios, residual risks | [Threat Model](07-threat-model.md) |
 | Enclave interface, binary protocol, CVM/wrapper split | [Enclave Interface](09-enclave-interface.md) |
+| Platform integrity, FIPS 140-3, third-party attestation, audit key | [Platform Integrity & Compliance](10-platform-integrity-and-compliance.md) |
 
 ---
 

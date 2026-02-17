@@ -32,6 +32,7 @@ For deeper treatment of specific topics, see the companion documents referenced 
 ## 1. Design Goals
 
 CC-TSA is designed around five core principles that collectively provide a different trust architecture from traditional HSM-based Timestamp Authorities.
+For FIPS 140-3 compliance considerations, third-party attestation requirements, and platform integrity verification, see [Platform Integrity & Compliance](10-platform-integrity-and-compliance.md).
 
 ### 1.1 Verifiable Trust via Hardware Attestation
 
@@ -888,3 +889,4 @@ This procedure ensures there is never ambiguity about which software version sig
 | Threat model, STRIDE analysis, residual risks | [Threat Model](07-threat-model.md) |
 | Throughput analysis, scaling strategy, cost estimates | [Throughput & Scaling](08-throughput-and-scaling.md) |
 | Enclave interface, binary protocol, CVM core specification | [Enclave Interface](09-enclave-interface.md) |
+| Platform integrity, FIPS 140-3, third-party attestation, audit key | [Platform Integrity & Compliance](10-platform-integrity-and-compliance.md) |
