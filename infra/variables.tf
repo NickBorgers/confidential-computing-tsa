@@ -1,7 +1,7 @@
 variable "location" {
   description = "Azure region — must support DCasv5 series"
   type        = string
-  default     = "eastus"
+  default     = "westus"
 }
 
 variable "resource_prefix" {
