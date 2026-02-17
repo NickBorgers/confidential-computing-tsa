@@ -9,6 +9,10 @@
 > - [Operations and Deployment](05-operations-and-deployment.md) — deployment procedures, monitoring, alerting
 > - [Threat Model](07-threat-model.md) — adversarial scenarios and mitigations
 
+**Implementation status**: This document describes failure modes for the full production 5-node
+cluster. The current PoC runs a single Azure CVM; multi-node failure scenarios, quorum loss
+recovery, and the cluster health state machine are design targets not yet applicable.
+
 This document defines every failure scenario the CC-TSA system can encounter, the impact of each, and the exact recovery procedures to follow.
 The CC-TSA uses a **3-of-5 threshold signing** configuration: 5 AMD SEV-SNP enclave nodes each hold one key share,
 and a minimum of 3 nodes must be online to produce a valid timestamp signature. Key shares are **ephemeral** —

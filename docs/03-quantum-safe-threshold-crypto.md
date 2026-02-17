@@ -5,6 +5,10 @@ used by the Confidential Computing Timestamp Authority (CC-TSA). For system arch
 see [Architecture Overview](01-architecture-overview.md). For the hardware-attested execution environment that protects key shares at runtime,
 see [Confidential Computing and Time](02-confidential-computing-and-time.md).
 
+> **Implementation status**: The PoC implements single-signer ECDSA P-384 signing inside the CVM core.
+> The threshold ML-DSA-65 protocol, DKG ceremony, hybrid dual-signature tokens, and key lifecycle
+> management described in this document are design targets not yet implemented.
+
 ---
 
 ## Table of Contents

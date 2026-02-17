@@ -2,6 +2,12 @@
 
 > **CC-TSA Design Document 06** | Audience: Architects, Engineers, Security Reviewers, Integrators
 
+**Implementation status**: The PoC implements RFC 3161 request parsing, TSTInfo construction,
+CMS SignedData assembly, and TimeStampResp serialization — validated end-to-end in CI against a
+real Azure SEV-SNP deployment. The current implementation produces a single ECDSA P-384
+`SignerInfo`. The dual-signature hybrid tokens (ECDSA + ML-DSA-65) described below are a design
+target not yet implemented.
+
 This document provides a detailed analysis of how the Confidential Computing Timestamp Authority (CC-TSA) implements the RFC 3161 Time-Stamp Protocol.
 It covers request processing, response structure, the CMS SignedData encoding with dual hybrid signatures (ECDSA P-384 + ML-DSA-65),
 backward compatibility with classical verifiers, the verification decision tree, accuracy semantics, token size analysis, and HTTP transport.

@@ -5,6 +5,27 @@ Every timestamp token is signed inside AMD SEV-SNP confidential VMs using thresh
 the signing key never exists in any single location, the clock is hardware-protected,
 and the output is a standard RFC 3161 token with hybrid classical + post-quantum signatures.
 
+## Project Status
+
+Current stage: **Proof of Concept**
+
+The PoC demonstrates the core two-layer architecture running on real AMD SEV-SNP hardware:
+
+| Component | Status |
+|---|---|
+| CVM core (signing oracle, ~670 LOC Rust) | Implemented — ECDSA P-384 single-signer, TSTInfo/signedAttrs construction, binary vsock protocol |
+| Wrapper (RFC 3161 HTTP server, CMS assembly) | Implemented — request parsing, CMS SignedData assembly, TimeStampResp construction |
+| Azure Confidential VM deployment | Working — Terraform IaC provisions SEV-SNP VM, CI deploys and validates end-to-end |
+| Hardware attestation validation | Working — vTPM, SEV-SNP memory encryption, VCEK certificate retrieval verified in CI |
+| CI pipeline | Working — fmt, clippy, 67 unit/integration tests, Docker build, Azure deploy with RFC 3161 validation |
+| Threshold signing (3-of-5 ML-DSA-65) | Designed, not yet implemented (single-signer ECDSA P-384 MVP) |
+| Multi-cloud deployment (Azure + GCP + third) | Designed, not yet implemented (single Azure CVM) |
+| NTS time validation / TriHaRd consensus | Designed, not yet implemented (time stubs in CVM core) |
+| Hybrid quantum-safe signatures (ML-DSA-65 + ECDSA) | Designed, not yet implemented (ECDSA P-384 only) |
+| DKG ceremony | Designed, not yet implemented |
+
+The [design documents](#document-map) describe the full production architecture. They are forward-looking specifications — see each document's implementation status note for what is currently built.
+
 ## Why Replace Traditional TSAs?
 
 Traditional Timestamp Authorities (RFC 3161) protect their signing keys and clocks using **certified HSMs** —
@@ -75,6 +96,65 @@ graph TB
 - **Multi-cloud**: Nodes distributed so no single cloud provider hosts ≥3 (the threshold), eliminating single-provider compromise risk
 - **Standard output**: RFC 3161-compliant timestamp tokens; drop-in replacement for existing TSA infrastructure
 
+## Code Structure
+
+CC-TSA uses a **two-layer architecture** that splits the system into an immutable signing oracle (CVM core) and an updatable protocol layer (wrapper):
+
+```
+├── cvm/                        # CVM Core — runs inside AMD SEV-SNP confidential VM
+│   └── src/
+│       ├── main.rs             # State machine (Booting → TimeSync → Ready → Signing)
+│       ├── protocol.rs         # Binary vsock protocol parser/serializer
+│       ├── tstinfo.rs          # TSTInfo DER encoder (RFC 3161)
+│       ├── signed_attrs.rs     # CMS signedAttrs construction
+│       ├── time.rs             # SecureTSC reader, NTS stubs, monotonic enforcement
+│       ├── signing.rs          # ECDSA P-384 signing
+│       └── attestation.rs      # AMD SEV-SNP attestation report generation
+├── wrapper/                    # Wrapper — runs outside CVM, updatable without key rotation
+│   └── src/
+│       ├── main.rs             # HTTP server, RFC 3161 endpoint
+│       ├── rfc3161.rs          # TimeStampReq parsing and validation
+│       ├── cms.rs              # CMS SignedData assembly from CVM response
+│       ├── response.rs         # TimeStampResp construction
+│       ├── vsock_client.rs     # CVM communication via vsock
+│       └── config.rs           # Certificate and environment configuration
+├── infra/                      # Terraform IaC for Azure Confidential VM deployment
+│   ├── main.tf, vm.tf, ...     # SEV-SNP VM provisioning
+│   └── scripts/
+│       ├── deploy-tsa.sh       # Binary deployment and readiness polling
+│       └── test-tsa-application.sh  # E2E validation (health, RFC 3161, attestation)
+├── Dockerfile                  # Multi-stage build: Rust compilation → minimal runtime
+└── docs/                       # Design documents (see Document Map below)
+```
+
+The CVM core communicates with the wrapper over a binary vsock protocol (AF_VSOCK, port 5000).
+No ASN.1 parsing occurs inside the CVM — the wrapper handles all protocol complexity.
+See [`docs/09-enclave-interface.md`](docs/09-enclave-interface.md) for the full specification.
+
+## Building and Testing
+
+**Prerequisites**: Rust toolchain (1.70+)
+
+```bash
+# Build both crates
+cargo build --workspace
+
+# Run all tests (48 cvm-core + 19 tsa-wrapper)
+cargo test --workspace
+
+# Check formatting and lints
+cargo fmt --check
+cargo clippy -- -D warnings
+```
+
+**Docker build**:
+
+```bash
+docker build -t cc-tsa .
+```
+
+**Development environment**: Open in a [devcontainer](https://containers.dev/) — the `.devcontainer/` configuration includes the Rust toolchain and git hooks.
+
 ## Document Map
 
 | Document | Description | Audience |
@@ -86,6 +166,8 @@ graph TB
 | [`docs/05-operations-and-deployment.md`](docs/05-operations-and-deployment.md) | Deployment guide, monitoring, incident response | Operations, SRE |
 | [`docs/06-rfc3161-compliance.md`](docs/06-rfc3161-compliance.md) | RFC 3161 token format, hybrid signatures, compatibility | Protocol Engineers, Integrators |
 | [`docs/07-threat-model.md`](docs/07-threat-model.md) | Threat model, STRIDE analysis, residual risks | Security Engineers, Auditors |
+| [`docs/08-throughput-and-scaling.md`](docs/08-throughput-and-scaling.md) | Throughput analysis, scaling strategy, cost estimates | Architects, Product Managers |
+| [`docs/09-enclave-interface.md`](docs/09-enclave-interface.md) | Binary vsock protocol, CVM state machine, testing strategy | Engineers, Security Reviewers |
 
 ## Quick Answers
 

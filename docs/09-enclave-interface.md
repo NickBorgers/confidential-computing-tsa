@@ -13,6 +13,12 @@ attestation measurement bound to the TSA certificate.
 
 For the overall system architecture and the rationale for the two-layer split,
 see [Architecture Overview](01-architecture-overview.md), Section 2.6.
+
+> **Implementation status**: This interface is implemented and tested. The CVM core and wrapper are
+> deployed to an Azure SEV-SNP VM with the binary vsock protocol, TSTInfo encoder, signedAttrs
+> construction, and ECDSA P-384 signing all validated end-to-end in CI (67 tests). The CVM state
+> machine runs in TCP mode for the PoC; vsock transport is a deployment-time switch.
+
 For RFC 3161 protocol details, see [RFC 3161 Compliance](06-rfc3161-compliance.md).
 For the threat model analysis of the wrapper, see [Threat Model](07-threat-model.md), Scenario 7.
 
