@@ -330,10 +330,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # Note: GH_TOKEN uses WORKFLOW_PAT because PRs created with GITHUB_TOKEN don't trigger workflows
-      # Uses Agent Teams: The lead implements the solution, then spawns reviewer
-      # teammates to pre-validate the work before opening the PR. This catches
-      # issues that would otherwise require @claude rework cycles after PR review.
-      - name: Resolve issue with agent team in devcontainer
+      - name: Resolve issue in devcontainer
         uses: devcontainers/ci@v0.3
         with:
           imageName: ${{ env.DEVCONTAINER_IMAGE }}
@@ -342,7 +339,6 @@ jobs:
           env: |
             CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
             GH_TOKEN=${{ secrets.WORKFLOW_PAT }}
-            CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
             ISSUE_NUMBER=${{ github.event.issue.number }}
             ISSUE_TITLE=${{ github.event.issue.title }}
             REPO=${{ github.repository }}
@@ -365,9 +361,7 @@ jobs:
               --model opus \
               --dangerously-skip-permissions \
               --max-turns 600 \
-              --teammate-mode in-process \
               "You are an autonomous agent tasked with resolving GitHub issue #${ISSUE_NUMBER}.
-            You have Agent Teams enabled. Use them strategically for self-review before opening a PR.
 
             ISSUE TITLE: ${ISSUE_TITLE}
 
@@ -384,20 +378,7 @@ jobs:
             4. Validate your changes:
                - Run \`markdownlint '**/*.md' --config .markdownlint.json\` for docs changes
                - If Cargo.toml exists, run \`cargo test\` to verify code changes
-            5. **PRE-PR SELF-REVIEW**: Before opening the PR, create an agent team with
-               2-3 reviewer teammates (use Sonnet model for teammates) to validate your work:
-               - Teammate 1 (Design Reviewer): Check that the implementation correctly addresses
-                 the issue intent, review design decisions, check architecture fit with
-                 docs/01-architecture-overview.md. Write findings to /tmp/self-review-design.md.
-               - Teammate 2 (Code/Content Reviewer): Review code quality, run tests and linting,
-                 check doc accuracy and cross-references. Fix any issues found. Write findings
-                 to /tmp/self-review-code.md.
-               - Teammate 3 (Crypto/Standards Reviewer - only if changes touch crypto, protocols,
-                 or compliance): Validate crypto claims, RFC 3161 compliance, trust model
-                 invariants. Write findings to /tmp/self-review-standards.md.
-               After teammates complete, read their findings. If they found blocking issues,
-               fix them before proceeding. This pre-PR review prevents rework cycles.
-            6. Create a branch, commit your changes, and open a PR
+            5. Create a branch, commit your changes, and open a PR
 
             IMPORTANT RULES:
             - This is a documentation-focused design specification for a quantum-safe Timestamp Authority
@@ -417,13 +398,10 @@ jobs:
             ## Summary
             <describe what you changed>
 
-            ## Pre-PR Self-Review
-            <summarize findings from your reviewer teammates>
-
             ## Test Plan
             <how to verify the fix>
 
-            Generated with [Claude Code](https://claude.com/claude-code)' \\
+            Generated with Claude Code' \\
               --head claude/issue-${ISSUE_NUMBER}
 
             If you cannot resolve the issue (unclear requirements, needs human decision, etc.),
