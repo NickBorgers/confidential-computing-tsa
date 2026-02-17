@@ -19,6 +19,7 @@ on:
 jobs:
   weekly-security-news:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     permissions:
       contents: read
       issues: write
@@ -31,7 +32,7 @@ jobs:
           fetch-depth: 0
 
       - name: Create gh config directory for devcontainer mount
-        run: mkdir -p ~/.config/gh
+        run: mkdir -p ~/.config/gh ~/.claude ~/.azure
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -56,7 +57,7 @@ jobs:
               --output-format stream-json \
               --model opus \
               --dangerously-skip-permissions \
-              --max-turns 150 \
+              --max-turns 450 \
               "You are a SECURITY NEWS RESEARCHER performing a weekly review for ${REPO}.
 
             Your job is to find recent security developments that materially affect this project's
@@ -88,7 +89,15 @@ jobs:
             For each search topic, evaluate whether findings are relevant to CC-TSA's specific
             design and threat model — not just general security news.
 
-            **BEFORE CREATING ANY ISSUES:**
+            **STEP 3: REPORT SEARCH STATUS**
+
+            Before evaluating findings, report your search diagnostic:
+            - How many web searches you attempted
+            - How many returned results
+            - If web search was unavailable or failed, explicitly state: \"WARNING: Web search was not available. This review could not check for recent security news. Results are UNRELIABLE.\"
+            Do NOT proceed to the \"no relevant news found\" conclusion if you were unable to search.
+
+            **STEP 4: BEFORE CREATING ANY ISSUES:**
             Check for existing open issues with the weekly-security-news label:
             \`gh issue list --label weekly-security-news --state open --json number,title\`
 
@@ -96,7 +105,7 @@ jobs:
             - Avoid creating duplicate issues for already-known developments
             - Provide context on what has already been reported
 
-            **CRITICAL: VERY STRONG BIAS TOWARD NO ACTION.**
+            **STEP 5: CRITICAL: VERY STRONG BIAS TOWARD NO ACTION.**
             This is a security news filter, not a news aggregator. Do NOT create issues for:
             - General security news that doesn't specifically affect CC-TSA
             - Vulnerabilities in technologies the project doesn't use
@@ -108,11 +117,11 @@ jobs:
             The bar is HIGH: only file an issue if the news materially changes what CC-TSA
             should do or how it should assess its security.
 
-            **IF NO RELEVANT NEWS FOUND (expected most of the time):**
+            **STEP 6: IF NO RELEVANT NEWS FOUND (expected most of the time):**
             Output: 'Weekly security news review complete. No recent developments materially affecting CC-TSA security posture.'
             Then exit. Do NOT create any issues.
 
-            **IF MATERIALLY RELEVANT NEWS FOUND:**
+            **STEP 7: IF MATERIALLY RELEVANT NEWS FOUND:**
             1. First, ensure the label exists:
                gh label create \"weekly-security-news\" --color \"b60205\" --description \"Weekly security news findings relevant to CC-TSA\" 2>/dev/null || true
             2. For each relevant finding, create a GitHub issue:
