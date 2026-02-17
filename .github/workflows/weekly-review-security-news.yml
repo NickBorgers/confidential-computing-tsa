@@ -1,0 +1,166 @@
+name: "Weekly Review: Security News Research"
+
+# Security news researcher - uses web search to find recent security developments
+# relevant to CC-TSA's technology stack and threat model. Only files issues for
+# news that materially affects the project's security posture.
+#
+# Called by weekly-reviews.yml orchestrator
+
+on:
+  workflow_call:
+    inputs:
+      devcontainer_image:
+        required: true
+        type: string
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
+
+jobs:
+  weekly-security-news:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      issues: write
+      packages: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create gh config directory for devcontainer mount
+        run: mkdir -p ~/.config/gh ~/.claude ~/.azure
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Security news research in devcontainer
+        uses: devcontainers/ci@v0.3
+        with:
+          imageName: ${{ inputs.devcontainer_image }}
+          cacheFrom: ${{ inputs.devcontainer_image }}
+          push: never
+          env: |
+            CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+            GH_TOKEN=${{ github.token }}
+            REPO=${{ github.repository }}
+          runCmd: |
+            claude --print \
+              --verbose \
+              --output-format stream-json \
+              --model opus \
+              --dangerously-skip-permissions \
+              --max-turns 450 \
+              "You are a SECURITY NEWS RESEARCHER performing a weekly review for ${REPO}.
+
+            Your job is to find recent security developments that materially affect this project's
+            security posture.
+
+            Do NOT modify any code or push any changes. This is a read-only review.
+
+            **STEP 1: UNDERSTAND THE PROJECT**
+
+            Read the project documentation to understand the technology stack and security assumptions:
+            - docs/01-architecture-overview.md (system architecture)
+            - docs/03-quantum-safe-threshold-crypto.md (cryptographic design)
+            - docs/07-threat-model.md (threat model and security assumptions)
+            - docs/02-confidential-computing-and-time.md (TEE and time synchronization)
+
+            **STEP 2: RESEARCH RECENT SECURITY NEWS**
+
+            Use web search to research security news from the past 30 days relevant to:
+
+            - **AMD SEV-SNP**: vulnerabilities, attestation bypasses, side-channel attacks, firmware issues
+            - **ML-DSA / CRYSTALS-Dilithium**: cryptanalysis results, parameter concerns, implementation flaws
+            - **XMSS / LMS / hash-based signatures**: state management issues, implementation attacks
+            - **Threshold cryptography**: protocol vulnerabilities, DKG attacks, share reconstruction attacks
+            - **RFC 3161 / timestamping**: compliance changes, protocol attacks, timestamp manipulation
+            - **NTP / NTS**: time synchronization attacks, protocol vulnerabilities, spoofing
+            - **Rust cryptographic libraries**: supply chain issues, CVEs in dependencies (p384, ecdsa, sha2, rand_core, and related crates)
+            - **Confidential computing** (general): TEE attacks, attestation framework vulnerabilities, side-channel research
+
+            For each search topic, evaluate whether findings are relevant to CC-TSA's specific
+            design and threat model — not just general security news.
+
+            **STEP 3: REPORT SEARCH STATUS**
+
+            Before evaluating findings, report your search diagnostic:
+            - How many web searches you attempted
+            - How many returned results
+            - If web search was unavailable or failed, explicitly state: \"WARNING: Web search was not available. This review could not check for recent security news. Results are UNRELIABLE.\"
+            Do NOT proceed to the \"no relevant news found\" conclusion if you were unable to search.
+
+            **STEP 4: BEFORE CREATING ANY ISSUES:**
+            Check for existing open issues with the weekly-security-news label:
+            \`gh issue list --label weekly-security-news --state open --json number,title\`
+
+            Review existing issues to:
+            - Avoid creating duplicate issues for already-known developments
+            - Provide context on what has already been reported
+
+            **STEP 5: CRITICAL: VERY STRONG BIAS TOWARD NO ACTION.**
+            This is a security news filter, not a news aggregator. Do NOT create issues for:
+            - General security news that doesn't specifically affect CC-TSA
+            - Vulnerabilities in technologies the project doesn't use
+            - Theoretical attacks that the project's threat model already accounts for
+            - CVEs in libraries the project doesn't depend on
+            - Research that is interesting but doesn't change the project's security posture
+            - News that is more than 30 days old
+
+            The bar is HIGH: only file an issue if the news materially changes what CC-TSA
+            should do or how it should assess its security.
+
+            **STEP 6: IF NO RELEVANT NEWS FOUND (expected most of the time):**
+            Output: 'Weekly security news review complete. No recent developments materially affecting CC-TSA security posture.'
+            Then exit. Do NOT create any issues.
+
+            **STEP 7: IF MATERIALLY RELEVANT NEWS FOUND:**
+            1. First, ensure the label exists:
+               gh label create \"weekly-security-news\" --color \"b60205\" --description \"Weekly security news findings relevant to CC-TSA\" 2>/dev/null || true
+            2. For each relevant finding, create a GitHub issue:
+               gh issue create \\
+                 --title \"Security News: <brief description>\" \\
+                 --label \"weekly-security-news\" \\
+                 --body \"\$(cat <<'ISSUE_BODY'
+            ## Security News Finding
+
+            ### What Was Found
+            [Description of the security development]
+
+            ### Source / References
+            [URLs and references to the original source(s)]
+
+            ### Relevance to CC-TSA
+            [How this specifically affects the project's security posture, referencing specific
+            components, assumptions, or threat model entries]
+
+            ### Recommended Action
+            [What the project should do in response — e.g., update a dependency, revise a
+            threat model assumption, investigate further, or monitor the situation]
+
+            ### Urgency
+            [Low / Medium / High — based on exploitability and impact to CC-TSA specifically]
+
+            ---
+            Generated by Weekly Security News Review
+            ISSUE_BODY
+            )\"
+
+            Remember: When in doubt, do NOT create an issue. This project's maintainers should
+            not be flooded with general security news — only developments that require their
+            attention." < /dev/null 2>&1 | tee /workspaces/confidential-computing-tsa/weekly-security-news-output.jsonl
+
+      - name: Upload security news output
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: weekly-security-news-output
+          path: weekly-security-news-output.jsonl
+          retention-days: 7

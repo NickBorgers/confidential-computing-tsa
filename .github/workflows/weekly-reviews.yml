@@ -1,0 +1,70 @@
+name: Weekly Codebase Reviews
+
+# Periodic whole-codebase reviews that catch issues PR-level reviews miss:
+# - Accumulated crypto inconsistencies across documents
+# - Trust model erosion from incremental changes
+# - External security developments affecting the project
+#
+# Runs weekly on Monday at 6 AM UTC. Creates GitHub issues for findings.
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: weekly-reviews
+  cancel-in-progress: false
+
+env:
+  DEVCONTAINER_IMAGE: ghcr.io/nickborgers/confidential-computing-tsa-devcontainer
+
+jobs:
+  # Build and cache devcontainer image from main
+  build-devcontainer:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push devcontainer
+        uses: devcontainers/ci@v0.3
+        with:
+          imageName: ${{ env.DEVCONTAINER_IMAGE }}
+          cacheFrom: ${{ env.DEVCONTAINER_IMAGE }}
+          push: always
+
+  # Whole-codebase cryptographic consistency review
+  crypto-review:
+    needs: build-devcontainer
+    uses: ./.github/workflows/weekly-review-crypto.yml
+    with:
+      devcontainer_image: ghcr.io/nickborgers/confidential-computing-tsa-devcontainer
+    secrets: inherit
+
+  # Whole-codebase external reviewability & trust model review
+  standards-review:
+    needs: build-devcontainer
+    uses: ./.github/workflows/weekly-review-standards.yml
+    with:
+      devcontainer_image: ghcr.io/nickborgers/confidential-computing-tsa-devcontainer
+    secrets: inherit
+
+  # Security news research for relevant vulnerabilities
+  security-news:
+    needs: build-devcontainer
+    uses: ./.github/workflows/weekly-review-security-news.yml
+    with:
+      devcontainer_image: ghcr.io/nickborgers/confidential-computing-tsa-devcontainer
+    secrets: inherit
