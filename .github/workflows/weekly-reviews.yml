@@ -48,6 +48,10 @@ jobs:
   # Whole-codebase cryptographic consistency review
   crypto-review:
     needs: build-devcontainer
+    permissions:
+      contents: read
+      issues: write
+      packages: read
     uses: ./.github/workflows/weekly-review-crypto.yml
     with:
       devcontainer_image: ghcr.io/nickborgers/confidential-computing-tsa-devcontainer
@@ -56,6 +60,10 @@ jobs:
   # Whole-codebase external reviewability & trust model review
   standards-review:
     needs: build-devcontainer
+    permissions:
+      contents: read
+      issues: write
+      packages: read
     uses: ./.github/workflows/weekly-review-standards.yml
     with:
       devcontainer_image: ghcr.io/nickborgers/confidential-computing-tsa-devcontainer
@@ -64,6 +72,10 @@ jobs:
   # Security news research for relevant vulnerabilities
   security-news:
     needs: build-devcontainer
+    permissions:
+      contents: read
+      issues: write
+      packages: read
     uses: ./.github/workflows/weekly-review-security-news.yml
     with:
       devcontainer_image: ghcr.io/nickborgers/confidential-computing-tsa-devcontainer
