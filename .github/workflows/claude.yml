@@ -108,9 +108,9 @@ jobs:
     needs: [authorize, build-devcontainer]
     if: |
       needs.authorize.outputs.authorized == 'true' &&
-      ((github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
+      ((github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude') && !contains(github.event.comment.body, '<!-- bot:claude-workflow -->')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude') && !contains(github.event.comment.body, '<!-- bot:claude-workflow -->')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude') && !contains(github.event.review.body, '<!-- bot:claude-workflow -->')) ||
       (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude'))))
     runs-on: ubuntu-latest
     permissions:
@@ -245,6 +245,10 @@ jobs:
             - Reference docs/01-architecture-overview.md for system design context
             - Never use \`git push --no-verify\`
 
+            COMMENT RULES (to prevent feedback loops):
+            - ALWAYS append the HTML comment <!-- bot:claude-workflow --> at the end of every GitHub comment you post
+            - NEVER include the literal string @claude in any comment body — use 'Claude' (no @) when referring to yourself
+
             You are on branch ${PR_HEAD_REF}. Make the changes, commit, and push them."
             else
               PROMPT="You are responding to a request in ${REPO} issue #${ISSUE_NUMBER}.
@@ -259,6 +263,10 @@ jobs:
             - If Cargo.toml exists, use \`cargo clippy -- -D warnings\` for linting
             - Reference docs/01-architecture-overview.md for system design context
             - Never use \`git push --no-verify\`
+
+            COMMENT RULES (to prevent feedback loops):
+            - ALWAYS append the HTML comment <!-- bot:claude-workflow --> at the end of every GitHub comment you post
+            - NEVER include the literal string @claude in any comment body — use 'Claude' (no @) when referring to yourself
 
             Complete the user's request. If you make changes, create a branch, commit them, and open a PR.
             Reply to the user using: gh issue comment ${ISSUE_NUMBER} --body 'YOUR_RESPONSE'"
@@ -403,6 +411,10 @@ jobs:
 
             Generated with Claude Code' \\
               --head claude/issue-${ISSUE_NUMBER}
+
+            COMMENT RULES (to prevent feedback loops):
+            - ALWAYS append the HTML comment <!-- bot:claude-workflow --> at the end of every GitHub comment you post
+            - NEVER include the literal string @claude in any comment body — use 'Claude' (no @) when referring to yourself
 
             If you cannot resolve the issue (unclear requirements, needs human decision, etc.),
             comment on the issue explaining what clarification is needed:
