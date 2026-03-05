@@ -74,6 +74,9 @@ jobs:
             HAS_RUST_CODE=${{ inputs.has_rust_code }}
             HAS_DOCS=${{ inputs.has_docs }}
           runCmd: |
+            # Programmatic bot marker injection for feedback loop prevention
+            source .github/scripts/setup-gh-wrapper.sh
+
             claude --print \
               --verbose \
               --output-format stream-json \

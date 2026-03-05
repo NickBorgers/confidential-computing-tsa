@@ -387,6 +387,9 @@ jobs:
             PR_BODY=$(echo "$PR_BODY_B64" | base64 -d 2>/dev/null || echo "")
             ISSUE_BODY=$(echo "$ISSUE_BODY_B64" | base64 -d 2>/dev/null || echo "")
 
+            # Programmatic bot marker injection for feedback loop prevention
+            source .github/scripts/setup-gh-wrapper.sh
+
             claude --print \
               --verbose \
               --output-format stream-json \
@@ -800,6 +803,9 @@ jobs:
             STANDARDS_REVIEW_RESULT=${{ needs.standards-review.result }}
             RFC_STANDARDS_REVIEW_RESULT=${{ needs.rfc-standards-review.result }}
           runCmd: |
+            # Programmatic bot marker injection for feedback loop prevention
+            source .github/scripts/setup-gh-wrapper.sh
+
             claude --print \
               --verbose \
               --output-format stream-json \

@@ -103,6 +103,9 @@ jobs:
             HEAD_REF=${{ inputs.head_ref }}
             REPO=${{ github.repository }}
           runCmd: |
+            # Programmatic bot marker injection for feedback loop prevention
+            source .github/scripts/setup-gh-wrapper.sh
+
             claude --print \
               --verbose \
               --output-format stream-json \
