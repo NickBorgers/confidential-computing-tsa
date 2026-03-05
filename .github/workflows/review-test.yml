@@ -103,6 +103,9 @@ jobs:
             PR_NUMBER=${{ inputs.pr_number }}
             HEAD_REF=${{ inputs.head_ref }}
           runCmd: |
+            # Programmatic bot marker injection for feedback loop prevention
+            source .github/scripts/setup-gh-wrapper.sh
+
             # Using Sonnet: Checklist-based review with clear criteria
             claude --print \
               --verbose \

@@ -179,6 +179,9 @@ jobs:
             HEAD_SHA=${{ needs.check-failure.outputs.head_sha }}
             REPO=${{ github.repository }}
           runCmd: |
+            # Programmatic bot marker injection for feedback loop prevention
+            source .github/scripts/setup-gh-wrapper.sh
+
             # Run Claude to diagnose the workflow failure
             # Using Sonnet: Classification task with clear decision tree (3 categories)
             claude --print \
