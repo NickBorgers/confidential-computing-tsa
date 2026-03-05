@@ -108,9 +108,9 @@ jobs:
     needs: [authorize, build-devcontainer]
     if: |
       needs.authorize.outputs.authorized == 'true' &&
-      ((github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude') && !contains(github.event.comment.body, '<!-- bot:claude-workflow -->')) ||
-      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude') && !contains(github.event.comment.body, '<!-- bot:claude-workflow -->')) ||
-      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude') && !contains(github.event.review.body, '<!-- bot:claude-workflow -->')) ||
+      ((github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude') && !contains(github.event.comment.body, '<!-- bot:')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude') && !contains(github.event.comment.body, '<!-- bot:')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude') && !contains(github.event.review.body, '<!-- bot:')) ||
       (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude'))))
     runs-on: ubuntu-latest
     permissions:
@@ -216,6 +216,41 @@ jobs:
             # Use --verbose and --output-format stream-json for complete conversation logs
             mkdir -p "${CLAUDE_CONFIG_DIR}"
 
+            # Programmatic bot marker injection: wrap gh so all comments
+            # automatically get the marker appended, regardless of LLM compliance.
+            REAL_GH="$(which gh)"
+            cat > /tmp/gh-wrapper << 'GHWRAPPER'
+            #!/bin/bash
+            MARKER=$'\n<!-- bot:claude-workflow -->'
+            # Intercept 'gh pr comment' and 'gh issue comment' to append marker
+            if { [ "${1:-}" = "pr" ] && [ "${2:-}" = "comment" ]; } || \
+               { [ "${1:-}" = "issue" ] && [ "${2:-}" = "comment" ]; }; then
+              args=()
+              i=1
+              while [ $i -le $# ]; do
+                arg="${!i}"
+                args+=("$arg")
+                if [ "$arg" = "--body" ]; then
+                  i=$((i + 1))
+                  val="${!i}"
+                  # Append marker if not already present
+                  if ! echo "$val" | grep -qF '<!-- bot:claude-workflow -->'; then
+                    val="${val}${MARKER}"
+                  fi
+                  args+=("$val")
+                fi
+                i=$((i + 1))
+              done
+              exec "__REAL_GH__" "${args[@]}"
+            else
+              exec "__REAL_GH__" "$@"
+            fi
+            GHWRAPPER
+            sed -i "s|__REAL_GH__|${REAL_GH}|g" /tmp/gh-wrapper
+            chmod +x /tmp/gh-wrapper
+            export PATH="/tmp:$PATH"
+            ln -sf /tmp/gh-wrapper /tmp/gh
+
             # Build the prompt based on whether this is a PR or issue comment
             if [ "$IS_PR" = "true" ]; then
               PROMPT="You are an autonomous agent responding to a request on PR #${ISSUE_NUMBER} in ${REPO}.
@@ -246,8 +281,8 @@ jobs:
             - Never use \`git push --no-verify\`
 
             COMMENT RULES (to prevent feedback loops):
-            - ALWAYS append the HTML comment <!-- bot:claude-workflow --> at the end of every GitHub comment you post
-            - NEVER include the literal string @claude in any comment body — use 'Claude' (no @) when referring to yourself
+            - The gh wrapper automatically appends the bot marker to your comments
+            - Avoid using @claude as a mention or trigger in comment text — use 'Claude' (no @) when referring to yourself. You may quote or reference the trigger syntax if needed for documentation purposes.
 
             You are on branch ${PR_HEAD_REF}. Make the changes, commit, and push them."
             else
@@ -265,8 +300,8 @@ jobs:
             - Never use \`git push --no-verify\`
 
             COMMENT RULES (to prevent feedback loops):
-            - ALWAYS append the HTML comment <!-- bot:claude-workflow --> at the end of every GitHub comment you post
-            - NEVER include the literal string @claude in any comment body — use 'Claude' (no @) when referring to yourself
+            - The gh wrapper automatically appends the bot marker to your comments
+            - Avoid using @claude as a mention or trigger in comment text — use 'Claude' (no @) when referring to yourself. You may quote or reference the trigger syntax if needed for documentation purposes.
 
             Complete the user's request. If you make changes, create a branch, commit them, and open a PR.
             Reply to the user using: gh issue comment ${ISSUE_NUMBER} --body 'YOUR_RESPONSE'"
@@ -357,6 +392,41 @@ jobs:
             # Use --verbose and --output-format stream-json for complete conversation logs
             mkdir -p "${CLAUDE_CONFIG_DIR}"
 
+            # Programmatic bot marker injection: wrap gh so all comments
+            # automatically get the marker appended, regardless of LLM compliance.
+            REAL_GH="$(which gh)"
+            cat > /tmp/gh-wrapper << 'GHWRAPPER'
+            #!/bin/bash
+            MARKER=$'\n<!-- bot:claude-workflow -->'
+            # Intercept 'gh pr comment' and 'gh issue comment' to append marker
+            if { [ "${1:-}" = "pr" ] && [ "${2:-}" = "comment" ]; } || \
+               { [ "${1:-}" = "issue" ] && [ "${2:-}" = "comment" ]; }; then
+              args=()
+              i=1
+              while [ $i -le $# ]; do
+                arg="${!i}"
+                args+=("$arg")
+                if [ "$arg" = "--body" ]; then
+                  i=$((i + 1))
+                  val="${!i}"
+                  # Append marker if not already present
+                  if ! echo "$val" | grep -qF '<!-- bot:claude-workflow -->'; then
+                    val="${val}${MARKER}"
+                  fi
+                  args+=("$val")
+                fi
+                i=$((i + 1))
+              done
+              exec "__REAL_GH__" "${args[@]}"
+            else
+              exec "__REAL_GH__" "$@"
+            fi
+            GHWRAPPER
+            sed -i "s|__REAL_GH__|${REAL_GH}|g" /tmp/gh-wrapper
+            chmod +x /tmp/gh-wrapper
+            export PATH="/tmp:$PATH"
+            ln -sf /tmp/gh-wrapper /tmp/gh
+
             # Fetch issue body via API to avoid multi-line env var escaping issues
             ISSUE_BODY=$(gh api "repos/${REPO}/issues/${ISSUE_NUMBER}" --jq '.body')
 
@@ -413,8 +483,8 @@ jobs:
               --head claude/issue-${ISSUE_NUMBER}
 
             COMMENT RULES (to prevent feedback loops):
-            - ALWAYS append the HTML comment <!-- bot:claude-workflow --> at the end of every GitHub comment you post
-            - NEVER include the literal string @claude in any comment body — use 'Claude' (no @) when referring to yourself
+            - The gh wrapper automatically appends the bot marker to your comments
+            - Avoid using @claude as a mention or trigger in comment text — use 'Claude' (no @) when referring to yourself. You may quote or reference the trigger syntax if needed for documentation purposes.
 
             If you cannot resolve the issue (unclear requirements, needs human decision, etc.),
             comment on the issue explaining what clarification is needed:
