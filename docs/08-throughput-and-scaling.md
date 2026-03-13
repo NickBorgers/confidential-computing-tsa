@@ -441,3 +441,4 @@ Scaling beyond that is needed only for national-scale e-invoicing, IoT attestati
 | Infrastructure requirements, deployment guide | [Operations and Deployment](05-operations-and-deployment.md) |
 | RFC 3161 token format, dual signatures | [RFC 3161 Compliance](06-rfc3161-compliance.md) |
 | Threat model, STRIDE analysis | [Threat Model](07-threat-model.md) |
+| Platform integrity, FIPS 140-3, third-party attestation, audit key | [Platform Integrity & Compliance](10-platform-integrity-and-compliance.md) |

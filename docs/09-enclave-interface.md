@@ -372,6 +372,7 @@ The security audit focuses on the ~670 LOC of Rust in the CVM core:
 | AMD SEV-SNP, SecureTSC, trusted time chain | [Confidential Computing & Time](02-confidential-computing-and-time.md) |
 | RFC 3161 token format, CMS SignedData, CVM/wrapper split | [RFC 3161 Compliance](06-rfc3161-compliance.md) |
 | Threat model, wrapper security analysis | [Threat Model](07-threat-model.md) |
+| Platform integrity, FIPS 140-3, third-party attestation, audit key | [Platform Integrity & Compliance](10-platform-integrity-and-compliance.md) |
 
 ---
 
